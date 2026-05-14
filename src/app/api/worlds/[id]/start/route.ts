@@ -33,16 +33,22 @@ export async function POST(
     .where(eq(schema.turns.worldId, id))
     .all();
   if (existing.length === 0) {
+    const turnId = newId();
     await db
       .insert(schema.turns)
       .values({
-        id: newId(),
+        id: turnId,
         worldId: id,
         turnNumber: 1,
         phase: "DISCUSSION",
         dateAtTurn: world.currentDate,
         worldStateSnapshot: world.worldState,
       })
+      .run();
+    await db
+      .update(schema.worlds)
+      .set({ currentTurnId: turnId })
+      .where(eq(schema.worlds.id, id))
       .run();
   }
   return NextResponse.json({ ok: true });

@@ -19,11 +19,14 @@ const Submit = z.object({
   actionId: z.string(),
   text: z.string().min(1).max(2000),
 });
+// Resolve: outcome is required (success | partial | fail). Extended narration
+// (resolvedText) is optional — Reality might want to leave it blank and let
+// the outcome chip speak for itself.
 const Resolve = z.object({
   op: z.literal("resolve"),
   actionId: z.string(),
-  resolvedText: z.string().min(1).max(2000),
-  resolvedOutcome: z.string().max(60).optional(),
+  resolvedText: z.string().max(2000).optional(),
+  resolvedOutcome: z.enum(["success", "partial", "fail"]),
 });
 // Skip = commit an action as "no action this turn". Convention: submittedAt
 // set, submittedText empty. Doesn't need resolution. The endpoint creates
@@ -187,8 +190,8 @@ export async function POST(req: NextRequest) {
     await db
       .update(schema.actions)
       .set({
-        resolvedText: p.data.resolvedText,
-        resolvedOutcome: p.data.resolvedOutcome ?? null,
+        resolvedText: p.data.resolvedText ?? "",
+        resolvedOutcome: p.data.resolvedOutcome,
         resolvedAt: new Date().toISOString(),
       })
       .where(eq(schema.actions.id, p.data.actionId))

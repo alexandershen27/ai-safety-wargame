@@ -132,7 +132,8 @@ function ResolveCard({
   // Polls only overwrite the form when it's clean — so we don't clobber
   // Reality's in-progress edits with a stale snapshot.
   const [touched, setTouched] = useState(false);
-  const isResolved = !!existingResolved;
+  // Outcome is what makes an action resolved. Text is optional narration.
+  const isResolved = !!existingOutcome;
 
   useEffect(() => {
     if (!touched) {
@@ -146,7 +147,7 @@ function ResolveCard({
     (outcome ?? "") !== (existingOutcome ?? "");
 
   async function save() {
-    if (!resolved.trim()) return;
+    if (!outcome) return; // outcome is required
     setError(null);
     setBusy(true);
     const r = await fetch("/api/actions", {
@@ -156,7 +157,7 @@ function ResolveCard({
         op: "resolve",
         actionId,
         resolvedText: resolved,
-        resolvedOutcome: outcome || undefined,
+        resolvedOutcome: outcome,
       }),
     });
     if (!r.ok) {
@@ -225,7 +226,7 @@ function ResolveCard({
         <>
           <textarea
             className="gb-textarea"
-            placeholder="Write the resolved fact: 'They did X. Y happened as a result.'"
+            placeholder="Optional: how did it play out?"
             value={resolved}
             onChange={(e) => {
               setResolved(e.target.value);
@@ -259,8 +260,11 @@ function ResolveCard({
             <button
               className="gb-btn primary sm"
               onClick={save}
-              disabled={busy || !resolved.trim() || (isResolved && !isDirty)}
+              disabled={busy || !outcome || (isResolved && !isDirty)}
               style={{ marginLeft: "auto" }}
+              title={
+                !outcome ? "Pick an outcome first (success / partial / fail)." : undefined
+              }
             >
               {busy
                 ? "…"
@@ -272,7 +276,7 @@ function ResolveCard({
             </button>
           </div>
         </>
-      ) : isResolved ? (
+      ) : isResolved && (existingResolved ?? "").trim().length > 0 ? (
         <p className="gb-p" style={{ marginTop: 4 }}>
           <span className="gb-mute" style={{ marginRight: 6, fontSize: 10 }}>
             RESOLVED

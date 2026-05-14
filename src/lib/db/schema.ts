@@ -44,6 +44,8 @@ export const worlds = sqliteTable(
     worldState: text("world_state").notNull().default("{}"),
     /** 'lobby' | 'active' | 'closed' */
     status: text("status").notNull().default("lobby"),
+    /** Tip of the active branch. Null in lobby; set as soon as turn 1 opens. */
+    currentTurnId: text("current_turn_id"),
     createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   },
   (t) => [uniqueIndex("worlds_join_code_idx").on(t.joinCode)],
@@ -104,6 +106,8 @@ export const turns = sqliteTable(
     /** JSON snapshot of world.world_state at turn start */
     worldStateSnapshot: text("world_state_snapshot").notNull().default("{}"),
     closedAt: text("closed_at"),
+    /** Stable creation timestamp, used for sibling ordering in the branch graph. */
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   },
   (t) => [index("turns_world_idx").on(t.worldId, t.turnNumber)],
 );

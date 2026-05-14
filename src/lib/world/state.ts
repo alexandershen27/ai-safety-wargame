@@ -25,13 +25,15 @@ export type WorldView = {
   currentTurn: typeof schema.turns.$inferSelect | null;
   actions: (typeof schema.actions.$inferSelect)[];
   votes: (typeof schema.votes.$inferSelect)[];
-  /** Lightweight per-turn info for the Ribbon. */
+  /** Lightweight per-turn info for the Ribbon and the branch graph. */
   allTurns: {
     id: string;
     turnNumber: number;
     dateAtTurn: string;
     phase: string;
     closedAt: string | null;
+    parentTurnId: string | null;
+    createdAt: string;
   }[];
   isReality: boolean;
   myRoleIds: string[];
@@ -88,7 +90,12 @@ export async function getWorldView(
     .where(eq(schema.turns.worldId, worldId))
     .orderBy(asc(schema.turns.turnNumber))
     .all();
+  // Find the active turn via worlds.current_turn_id; fall back to the open
+  // turn for legacy worlds that pre-date the pointer column.
   const currentTurn =
+    (world.currentTurnId
+      ? allTurnsRaw.find((t) => t.id === world.currentTurnId)
+      : undefined) ??
     allTurnsRaw.find((t) => t.closedAt === null) ??
     allTurnsRaw[allTurnsRaw.length - 1] ??
     null;
@@ -119,10 +126,16 @@ export async function getWorldView(
       ),
     );
 
-  // Hidden if: in DISCUSSION, not Reality, AND (I have no seats OR haven't
-  // submitted all of them yet). Spectators (no seats) get the gate forever
-  // in DISCUSSION — they see nothing — which keeps the rule consistent.
-  const actionsHidden = inDiscussion && !isReality && !iHaveSubmittedAll;
+  // Visibility rule:
+  //   - Seated players (incl. Reality with seats) must submit every action
+  //     they owe before they can see/vote on anyone else's. No peeking even
+  //     for the GM if they're also playing roles.
+  //   - Unseated Reality sees everything (they need it to advance phases).
+  //   - Unseated non-Reality (spectators) see nothing during DISCUSSION.
+  const hasSeats = myRoleIds.length > 0;
+  const actionsHidden =
+    inDiscussion &&
+    (hasSeats ? !iHaveSubmittedAll : !isReality);
   const actions = actionsHidden
     ? rawActions.filter((a) => a.authorPlayerId === currentPlayerId)
     : rawActions;
@@ -195,6 +208,8 @@ export async function getWorldView(
       dateAtTurn: t.dateAtTurn,
       phase: t.phase,
       closedAt: t.closedAt,
+      parentTurnId: t.parentTurnId,
+      createdAt: t.createdAt,
     })),
     isReality,
     myRoleIds,
