@@ -158,7 +158,12 @@ export async function getWorldView(
   // voteProgress: count how many seated PLAYERS (not seats) have voted on
   // every currently-submitted action. Needs unfiltered votes since visibility
   // can hide things from the requesting player.
-  const submittedActions = rawActions.filter((a) => a.submittedAt !== null);
+  // Only non-skipped submitted actions need votes. Skipped actions
+  // (submittedAt set, submittedText empty) don't appear in the vote UI.
+  const submittedActions = rawActions.filter(
+    (a) =>
+      a.submittedAt !== null && (a.submittedText ?? "").trim().length > 0,
+  );
   const allVotes = submittedActions.length
     ? await db
         .select()

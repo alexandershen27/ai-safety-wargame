@@ -25,6 +25,17 @@ const Resolve = z.object({
   resolvedText: z.string().min(1).max(2000),
   resolvedOutcome: z.string().max(60).optional(),
 });
+// Skip = commit an action as "no action this turn". Convention: submittedAt
+// set, submittedText empty. Doesn't need resolution. The endpoint creates
+// the action row if it doesn't already exist (so a player can hit Skip
+// without typing anything first).
+const Skip = z.object({
+  op: z.literal("skip"),
+  worldId: z.string(),
+  turnId: z.string(),
+  roleId: z.string(),
+  actionId: z.string().optional(),
+});
 
 export async function POST(req: NextRequest) {
   await ensureSchema();
@@ -92,6 +103,58 @@ export async function POST(req: NextRequest) {
       .where(eq(schema.actions.id, p.data.actionId))
       .run();
     return NextResponse.json({ ok: true });
+  }
+
+  if (body.op === "skip") {
+    const p = Skip.safeParse(body);
+    if (!p.success) return NextResponse.json({ error: "bad body" }, { status: 400 });
+    const seat = await db
+      .select()
+      .from(schema.seats)
+      .where(
+        and(
+          eq(schema.seats.worldId, p.data.worldId),
+          eq(schema.seats.roleId, p.data.roleId),
+          eq(schema.seats.playerId, player.id),
+        ),
+      )
+      .get();
+    if (!seat) return new NextResponse("Not seated in that role.", { status: 403 });
+
+    const now = new Date().toISOString();
+    let actionId = p.data.actionId;
+    if (actionId) {
+      const existing = await db
+        .select()
+        .from(schema.actions)
+        .where(eq(schema.actions.id, actionId))
+        .get();
+      if (!existing) return new NextResponse("Action not found.", { status: 404 });
+      if (existing.authorPlayerId !== player.id)
+        return new NextResponse("Not your action.", { status: 403 });
+      if (existing.submittedAt) return NextResponse.json({ ok: true });
+      await db
+        .update(schema.actions)
+        .set({ submittedText: "", draftText: "", submittedAt: now })
+        .where(eq(schema.actions.id, actionId))
+        .run();
+    } else {
+      actionId = newId();
+      await db
+        .insert(schema.actions)
+        .values({
+          id: actionId,
+          turnId: p.data.turnId,
+          roleId: p.data.roleId,
+          authorPlayerId: player.id,
+          slot: 1,
+          draftText: "",
+          submittedText: "",
+          submittedAt: now,
+        })
+        .run();
+    }
+    return NextResponse.json({ ok: true, actionId });
   }
 
   if (body.op === "resolve") {

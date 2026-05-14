@@ -21,10 +21,35 @@ type Action = {
   id: string;
   turnId: string;
   roleId: string;
+  submittedAt: string | null;
   submittedText: string | null;
   resolvedText: string | null;
   resolvedOutcome: string | null;
 };
+
+// Normalize legacy outcome ids ("success-high", "fail-hard") to the new
+// success/partial/fail triplet for display.
+function normalizeOutcome(outcomeId: string | null): {
+  id: string;
+  label: string;
+  symbol: string;
+  color: string;
+} | null {
+  if (!outcomeId) return null;
+  const id = outcomeId.startsWith("success")
+    ? "success"
+    : outcomeId.startsWith("fail")
+      ? "fail"
+      : "partial";
+  switch (id) {
+    case "success":
+      return { id, label: "Success", symbol: "✓", color: "var(--good)" };
+    case "fail":
+      return { id, label: "Fail", symbol: "✗", color: "var(--bad)" };
+    default:
+      return { id, label: "Partial", symbol: "~", color: "var(--warn)" };
+  }
+}
 
 const COL_WIDTH = 132;
 const LANE_HEIGHT = 88;
@@ -261,15 +286,25 @@ export function BranchGraphClient({
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {selectedActions.map((a) => {
                 const role = roles.find((r) => r.id === a.roleId);
-                const status = a.resolvedText
-                  ? "resolved"
-                  : a.submittedText
-                    ? "submitted"
-                    : "draft";
+                const submittedText = (a.submittedText ?? "").trim();
+                const isSkipped =
+                  a.submittedAt !== null && submittedText.length === 0;
+                const status = isSkipped
+                  ? "skipped"
+                  : a.resolvedText
+                    ? "resolved"
+                    : a.submittedText
+                      ? "submitted"
+                      : "draft";
+                const outcome = normalizeOutcome(a.resolvedOutcome);
                 return (
                   <div
                     key={a.id}
-                    style={{ borderLeft: "2px solid var(--border)", paddingLeft: 10 }}
+                    style={{
+                      borderLeft: "2px solid var(--border)",
+                      paddingLeft: 10,
+                      opacity: isSkipped ? 0.6 : 1,
+                    }}
                   >
                     <div
                       style={{
@@ -277,6 +312,7 @@ export function BranchGraphClient({
                         gap: 8,
                         alignItems: "center",
                         marginBottom: 4,
+                        flexWrap: "wrap",
                       }}
                     >
                       {role && <RoleChip role={role} />}
@@ -285,24 +321,50 @@ export function BranchGraphClient({
                         style={{ color: "var(--muted)", fontSize: 10 }}
                       >
                         {status}
-                        {a.resolvedOutcome ? ` · ${a.resolvedOutcome}` : ""}
                       </span>
+                      {outcome && (
+                        <span
+                          className="gb-pill"
+                          style={{
+                            color: outcome.color,
+                            borderColor: outcome.color,
+                            background: "transparent",
+                          }}
+                        >
+                          <span style={{ marginRight: 2 }}>{outcome.symbol}</span>
+                          {outcome.label}
+                        </span>
+                      )}
                     </div>
-                    {a.submittedText && (
-                      <p className="gb-p" style={{ marginBottom: 4 }}>
-                        <span className="gb-mute" style={{ marginRight: 6, fontSize: 10 }}>
-                          PROPOSED
-                        </span>
-                        {a.submittedText}
+                    {isSkipped ? (
+                      <p className="gb-p" style={{ color: "var(--muted)" }}>
+                        no action this turn
                       </p>
-                    )}
-                    {a.resolvedText && (
-                      <p className="gb-p">
-                        <span className="gb-mute" style={{ marginRight: 6, fontSize: 10 }}>
-                          RESOLVED
-                        </span>
-                        {a.resolvedText}
-                      </p>
+                    ) : (
+                      <>
+                        {a.submittedText && (
+                          <p className="gb-p" style={{ marginBottom: 4 }}>
+                            <span
+                              className="gb-mute"
+                              style={{ marginRight: 6, fontSize: 10 }}
+                            >
+                              PROPOSED
+                            </span>
+                            {a.submittedText}
+                          </p>
+                        )}
+                        {a.resolvedText && (
+                          <p className="gb-p">
+                            <span
+                              className="gb-mute"
+                              style={{ marginRight: 6, fontSize: 10 }}
+                            >
+                              RESOLVED
+                            </span>
+                            {a.resolvedText}
+                          </p>
+                        )}
+                      </>
                     )}
                   </div>
                 );

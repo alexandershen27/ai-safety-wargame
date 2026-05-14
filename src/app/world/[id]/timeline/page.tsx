@@ -94,6 +94,7 @@ export default async function TimelinePage({
             id: a.id,
             turnId: a.turnId,
             roleId: a.roleId,
+            submittedAt: a.submittedAt,
             submittedText: a.submittedText,
             resolvedText: a.resolvedText,
             resolvedOutcome: a.resolvedOutcome,

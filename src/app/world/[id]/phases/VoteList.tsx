@@ -1,11 +1,10 @@
 "use client";
-// Reusable list of vote-on-an-action cards. Used in two places:
-//   - DISCUSSION view, below your drafts, after you've submitted everything
-//   - VOTE view, as the whole page
+// Unified action list with inline voting. Used by DISCUSSION (below the
+// drafts) and the legacy VOTE phase. One vote per player per action.
 //
-// Each card has a 0-100 likelihood slider, an optional objection textarea,
-// vote count + average readout, and a saved indicator. One vote per player
-// per action (regardless of how many roles they're seated at).
+// Skipped actions (submittedAt set + submittedText empty) render as a
+// single muted line — no slider, no objection field. There's nothing to
+// vote on.
 import { useEffect, useState } from "react";
 import { RoleChip } from "@/components/RoleChip";
 import type { WorldView } from "@/lib/world/state";
@@ -19,7 +18,7 @@ export function VoteList({
   you: { id: string; displayName: string };
   emptyMessage?: string;
 }) {
-  const submitted = view.actions.filter((a) => a.submittedText);
+  const submitted = view.actions.filter((a) => a.submittedAt);
   const myVoterRoleId = view.myRoleIds[0] ?? null;
 
   if (submitted.length === 0) {
@@ -34,6 +33,14 @@ export function VoteList({
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       {submitted.map((a) => {
         const role = view.roles.find((r) => r.id === a.roleId)!;
+        const text = (a.submittedText ?? "").trim();
+        const isSkipped = text.length === 0;
+        const isOwn = a.authorPlayerId === you.id;
+
+        if (isSkipped) {
+          return <SkippedCard key={a.id} role={role} isOwn={isOwn} />;
+        }
+
         const myVote = view.votes.find(
           (v) => v.actionId === a.id && v.voterPlayerId === you.id,
         );
@@ -44,12 +51,11 @@ export function VoteList({
             : Math.round(
                 allVotes.reduce((s, v) => s + v.likelihood, 0) / allVotes.length,
               );
-        const isOwn = a.authorPlayerId === you.id;
         return (
           <ActionVoteCard
             key={a.id}
             actionId={a.id}
-            actionText={a.submittedText!}
+            actionText={text}
             role={role}
             isOwn={isOwn}
             disabled={!myVoterRoleId}
@@ -64,6 +70,40 @@ export function VoteList({
           />
         );
       })}
+    </div>
+  );
+}
+
+function SkippedCard({
+  role,
+  isOwn,
+}: {
+  role: { id: string; name: string; color: string };
+  isOwn: boolean;
+}) {
+  return (
+    <div
+      className="gb-card"
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 12,
+        borderStyle: "dashed",
+        opacity: 0.7,
+      }}
+    >
+      <RoleChip role={role} />
+      <span className="gb-p" style={{ color: "var(--muted)", flex: 1 }}>
+        no action this turn
+      </span>
+      {isOwn && (
+        <span
+          className="gb-mono"
+          style={{ color: "var(--muted)", fontSize: 10 }}
+        >
+          YOUR ACTION
+        </span>
+      )}
     </div>
   );
 }
@@ -92,8 +132,6 @@ function ActionVoteCard({
   const [likelihood, setLikelihood] = useState(myVote?.likelihood ?? 50);
   const [objection, setObjection] = useState(myVote?.objection ?? "");
   const [savedAt, setSavedAt] = useState<number | null>(null);
-  // Only persist after the user actually touches the card, so we don't write
-  // a default 50% vote on mount for everyone who renders the list.
   const [touched, setTouched] = useState<boolean>(!!myVote);
 
   useEffect(() => {
@@ -140,7 +178,11 @@ function ActionVoteCard({
           {isOwn && (
             <span
               className="gb-mono"
-              style={{ color: "var(--accent)", fontSize: 10, letterSpacing: "0.08em" }}
+              style={{
+                color: "var(--accent)",
+                fontSize: 10,
+                letterSpacing: "0.08em",
+              }}
             >
               YOUR ACTION
             </span>
@@ -195,7 +237,11 @@ function ActionVoteCard({
             />
             <span
               className="gb-mono"
-              style={{ color: "var(--accent)", minWidth: 36, textAlign: "right" }}
+              style={{
+                color: "var(--accent)",
+                minWidth: 36,
+                textAlign: "right",
+              }}
             >
               {likelihood}%
             </span>
