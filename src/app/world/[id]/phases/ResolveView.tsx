@@ -6,12 +6,12 @@
 //   Partial — Reality's text describes a mixed or compromised outcome.
 //   Fail    — Reality's text describes why it didn't go through.
 //
-// Once resolved, the entry is FINAL — no edits. Server enforces this; UI
-// switches to read-only the moment resolvedAt lands.
+// Reality can re-resolve as many times as they want until the turn is CLOSED.
+// Server enforces "no edits after close" via a turn-already-closed guard.
 //
 // Skipped actions (submittedAt set, submittedText empty) show up as a muted
 // one-liner. They don't need a resolution — the player chose to do nothing.
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { RoleChip } from "@/components/RoleChip";
 import type { WorldView } from "@/lib/world/state";
 
@@ -124,11 +124,26 @@ function ResolveCard({
   isReality: boolean;
   objections: string[];
 }) {
-  const [resolved, setResolved] = useState("");
-  const [outcome, setOutcome] = useState<string>("");
+  const [resolved, setResolved] = useState(existingResolved ?? "");
+  const [outcome, setOutcome] = useState<string>(existingOutcome ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // "touched" tracks whether the local state diverges from server state.
+  // Polls only overwrite the form when it's clean — so we don't clobber
+  // Reality's in-progress edits with a stale snapshot.
+  const [touched, setTouched] = useState(false);
   const isResolved = !!existingResolved;
+
+  useEffect(() => {
+    if (!touched) {
+      setResolved(existingResolved ?? "");
+      setOutcome(existingOutcome ?? "");
+    }
+  }, [existingResolved, existingOutcome, touched]);
+
+  const isDirty =
+    (resolved ?? "") !== (existingResolved ?? "") ||
+    (outcome ?? "") !== (existingOutcome ?? "");
 
   async function save() {
     if (!resolved.trim()) return;
@@ -144,7 +159,12 @@ function ResolveCard({
         resolvedOutcome: outcome || undefined,
       }),
     });
-    if (!r.ok) setError(await r.text());
+    if (!r.ok) {
+      setError(await r.text());
+    } else {
+      // Re-enable poll syncing; next tick will reflect the just-saved values.
+      setTouched(false);
+    }
     setBusy(false);
   }
 
@@ -201,20 +221,16 @@ function ResolveCard({
         </div>
       )}
 
-      {isResolved ? (
-        <p className="gb-p" style={{ marginTop: 4 }}>
-          <span className="gb-mute" style={{ marginRight: 6, fontSize: 10 }}>
-            RESOLVED
-          </span>
-          {existingResolved}
-        </p>
-      ) : isReality ? (
+      {isReality ? (
         <>
           <textarea
             className="gb-textarea"
             placeholder="Write the resolved fact: 'They did X. Y happened as a result.'"
             value={resolved}
-            onChange={(e) => setResolved(e.target.value)}
+            onChange={(e) => {
+              setResolved(e.target.value);
+              setTouched(true);
+            }}
           />
           <div
             style={{
@@ -225,7 +241,13 @@ function ResolveCard({
               flexWrap: "wrap",
             }}
           >
-            <OutcomePicker value={outcome} onChange={setOutcome} />
+            <OutcomePicker
+              value={outcome}
+              onChange={(v) => {
+                setOutcome(v);
+                setTouched(true);
+              }}
+            />
             {error && (
               <span
                 className="gb-mono"
@@ -237,13 +259,26 @@ function ResolveCard({
             <button
               className="gb-btn primary sm"
               onClick={save}
-              disabled={busy || !resolved.trim()}
+              disabled={busy || !resolved.trim() || (isResolved && !isDirty)}
               style={{ marginLeft: "auto" }}
             >
-              {busy ? "…" : "Mark resolved (final)"}
+              {busy
+                ? "…"
+                : isResolved
+                  ? isDirty
+                    ? "Update resolution"
+                    : "Saved"
+                  : "Mark resolved"}
             </button>
           </div>
         </>
+      ) : isResolved ? (
+        <p className="gb-p" style={{ marginTop: 4 }}>
+          <span className="gb-mute" style={{ marginRight: 6, fontSize: 10 }}>
+            RESOLVED
+          </span>
+          {existingResolved}
+        </p>
       ) : null}
     </div>
   );
