@@ -38,6 +38,14 @@ export function ensureSchema(): Promise<void> {
 }
 
 async function bootstrap() {
+  // Idempotent ALTER TABLE adds for columns introduced after the initial schema.
+  // libSQL/SQLite doesn't have IF NOT EXISTS for ALTER COLUMN, so we swallow
+  // "duplicate column" errors. Order matters: CREATE TABLE runs first below,
+  // then we layer on the additions.
+  const additiveColumns: { table: string; column: string; ddl: string }[] = [
+    { table: "worlds", column: "current_turn_id", ddl: "ALTER TABLE worlds ADD COLUMN current_turn_id TEXT" },
+  ];
+
   const stmts = [
     `CREATE TABLE IF NOT EXISTS players (
       id TEXT PRIMARY KEY,
@@ -123,5 +131,16 @@ async function bootstrap() {
     `CREATE UNIQUE INDEX IF NOT EXISTS votes_unique_idx ON votes(action_id, voter_player_id)`,
   ];
   for (const s of stmts) await client.execute(s);
+
+  for (const add of additiveColumns) {
+    try {
+      await client.execute(add.ddl);
+    } catch (e) {
+      const msg = (e as Error).message ?? "";
+      // SQLite emits "duplicate column name: X" when the column is already there.
+      if (!msg.toLowerCase().includes("duplicate column")) throw e;
+    }
+  }
+
   global.__libsqlBootstrapped = true;
 }

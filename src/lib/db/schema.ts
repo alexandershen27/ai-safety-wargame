@@ -44,6 +44,8 @@ export const worlds = sqliteTable(
     worldState: text("world_state").notNull().default("{}"),
     /** 'lobby' | 'active' | 'closed' */
     status: text("status").notNull().default("lobby"),
+    /** Tip of the active branch. Null in lobby; set as soon as turn 1 opens. */
+    currentTurnId: text("current_turn_id"),
     createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   },
   (t) => [uniqueIndex("worlds_join_code_idx").on(t.joinCode)],

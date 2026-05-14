@@ -15,13 +15,14 @@ export type WorldView = {
   currentTurn: typeof schema.turns.$inferSelect | null;
   actions: (typeof schema.actions.$inferSelect)[];
   votes: (typeof schema.votes.$inferSelect)[];
-  /** Lightweight per-turn info for the Ribbon. */
+  /** Lightweight per-turn info for the Ribbon and the branch graph. */
   allTurns: {
     id: string;
     turnNumber: number;
     dateAtTurn: string;
     phase: string;
     closedAt: string | null;
+    parentTurnId: string | null;
   }[];
   isReality: boolean;
   myRoleIds: string[];
@@ -74,7 +75,12 @@ export async function getWorldView(
     .where(eq(schema.turns.worldId, worldId))
     .orderBy(asc(schema.turns.turnNumber))
     .all();
+  // Find the active turn via worlds.current_turn_id; fall back to the open
+  // turn for legacy worlds that pre-date the pointer column.
   const currentTurn =
+    (world.currentTurnId
+      ? allTurnsRaw.find((t) => t.id === world.currentTurnId)
+      : undefined) ??
     allTurnsRaw.find((t) => t.closedAt === null) ??
     allTurnsRaw[allTurnsRaw.length - 1] ??
     null;
@@ -119,6 +125,7 @@ export async function getWorldView(
       dateAtTurn: t.dateAtTurn,
       phase: t.phase,
       closedAt: t.closedAt,
+      parentTurnId: t.parentTurnId,
     })),
     isReality,
     myRoleIds: rawSeats
