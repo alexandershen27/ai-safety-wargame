@@ -1,12 +1,20 @@
 "use client";
-// Discussion phase. Each seated player drafts an action per role they hold.
+// DISCUSSION phase view. Combined drafting + voting:
 //
-// Other players' submitted actions are hidden until I submit at least one of
-// my own — that gate is enforced by the server (state.ts), so even peeking at
-// the polling JSON can't reveal them. Once I submit, I see all submissions.
+//   - Above the fold: one ActionDraft per role you're seated at. Editable until
+//     you submit; locked afterward.
+//   - Below the fold: a VoteList of every action that's been submitted so far,
+//     yours included. This only renders once you've personally submitted every
+//     action you owe (the "strict gate"). Spectators see the gate forever.
+//     Reality always sees it.
+//
+// Once your gate lifts, you can vote on actions as they come in. The server
+// drives transitions: Reality's advance button skips VOTE entirely when
+// everyone has naturally submitted.
 import { useEffect, useState } from "react";
 import { RoleChip } from "@/components/RoleChip";
 import type { WorldView } from "@/lib/world/state";
+import { VoteList } from "./VoteList";
 
 export function DiscussionView({
   worldId,
@@ -19,7 +27,7 @@ export function DiscussionView({
 }) {
   const turn = view.currentTurn!;
   const myRoles = view.roles.filter((r) => view.myRoleIds.includes(r.id));
-  const submitted = view.actions.filter((a) => a.submittedAt);
+  const canSeeOthers = !view.actionsHidden;
 
   return (
     <div
@@ -31,14 +39,16 @@ export function DiscussionView({
         gap: 24,
       }}
     >
-      {myRoles.length === 0 && (
+      {myRoles.length === 0 && !view.isReality && (
         <div className="gb-card">
           <p className="gb-p">
-            You're spectating. Sit down at a role from the lobby to draft actions.
+            You're spectating. Sit down at a role from the lobby to draft and
+            vote on actions.
           </p>
         </div>
       )}
 
+      {/* Your draft cards. */}
       {myRoles.map((role) => {
         const myAction = view.actions.find(
           (a) => a.roleId === role.id && a.authorPlayerId === you.id,
@@ -54,43 +64,29 @@ export function DiscussionView({
         );
       })}
 
+      {/* Vote section. Gate flips the moment you submit your last action. */}
       <div>
         <div className="gb-h" style={{ marginBottom: 8 }}>
           <span className="ttl">Submitted actions</span>
           <span className="meta">
-            {view.actionsHidden
-              ? "submit one of your own to see others'"
-              : `${submitted.length} so far`}
+            {canSeeOthers
+              ? `${view.submitProgress.submitted} of ${view.submitProgress.expected} seats submitted`
+              : myRoles.length === 0
+                ? "spectators wait for resolution"
+                : "submit all your actions to see and vote on others'"}
           </span>
         </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {submitted.length === 0 && !view.actionsHidden && (
-            <p className="gb-p" style={{ color: "var(--muted)" }}>
-              No actions submitted yet.
-            </p>
-          )}
-          {view.actionsHidden && (
-            <p className="gb-p" style={{ color: "var(--muted)" }}>
-              Other players' actions appear here after you submit yours.
-            </p>
-          )}
-          {submitted.map((a) => {
-            const role = view.roles.find((r) => r.id === a.roleId)!;
-            return (
-              <div key={a.id} className="gb-card">
-                <div
-                  style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}
-                >
-                  <RoleChip role={role} />
-                  <span className="gb-mono" style={{ color: "var(--muted)", fontSize: 10 }}>
-                    submitted
-                  </span>
-                </div>
-                <p className="gb-p">{a.submittedText}</p>
-              </div>
-            );
-          })}
-        </div>
+        {canSeeOthers ? (
+          <VoteList
+            view={view}
+            you={you}
+            emptyMessage="Waiting for the first action to be submitted."
+          />
+        ) : (
+          <p className="gb-p" style={{ color: "var(--muted)" }}>
+            Others' actions appear here as soon as you've submitted yours.
+          </p>
+        )}
       </div>
     </div>
   );
@@ -116,7 +112,6 @@ function ActionDraft({
   const [actionId, setActionId] = useState<string | undefined>(existing?.id);
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  // Optimistic: flip to "submitted" instantly on click, even before the next poll.
   const [optimisticSubmitted, setOptimisticSubmitted] = useState(false);
   const submitted = !!existing?.submittedAt || optimisticSubmitted;
 
@@ -127,7 +122,7 @@ function ActionDraft({
     }
   }, [existing, actionId]);
 
-  // Debounced auto-save of drafts (only while not submitted).
+  // Debounced auto-save of drafts while not submitted.
   useEffect(() => {
     if (submitted) return;
     const t = setTimeout(async () => {
@@ -179,10 +174,7 @@ function ActionDraft({
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ op: "submit", actionId: id, text }),
     });
-    if (!r.ok) {
-      // Revert optimistic lock on failure.
-      setOptimisticSubmitted(false);
-    }
+    if (!r.ok) setOptimisticSubmitted(false);
     setSubmitting(false);
   }
 
