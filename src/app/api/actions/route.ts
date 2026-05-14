@@ -166,15 +166,16 @@ export async function POST(req: NextRequest) {
       .where(eq(schema.actions.id, p.data.actionId))
       .get();
     if (!action) return new NextResponse("Action not found.", { status: 404 });
-    // Resolve is final: once resolvedAt is set, no further edits.
-    if (action.resolvedAt)
-      return new NextResponse("Already resolved.", { status: 409 });
     const turn = await db
       .select()
       .from(schema.turns)
       .where(eq(schema.turns.id, action.turnId))
       .get();
     if (!turn) return new NextResponse("Turn not found.", { status: 404 });
+    // Once a turn is CLOSED the resolution is permanent; before that, Reality
+    // can edit freely.
+    if (turn.closedAt)
+      return new NextResponse("Turn already closed.", { status: 409 });
     const world = await db
       .select()
       .from(schema.worlds)

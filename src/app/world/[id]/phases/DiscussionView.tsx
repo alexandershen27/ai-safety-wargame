@@ -78,19 +78,15 @@ export function DiscussionView({
               ? `${view.submitProgress.submitted} of ${view.submitProgress.expected} submitted`
               : myRoles.length === 0
                 ? "spectators wait for resolution"
-                : "submit (or skip) all your actions to see and vote on others'"}
+                : "submit your actions to see and vote on others'"}
           </span>
         </div>
-        {canSeeOthers ? (
+        {canSeeOthers && (
           <VoteList
             view={view}
             you={you}
             emptyMessage="Waiting for the first action to be submitted."
           />
-        ) : (
-          <p className="gb-p" style={{ color: "var(--muted)" }}>
-            Others' actions appear here as soon as you've submitted yours.
-          </p>
         )}
       </div>
     </div>
@@ -117,7 +113,6 @@ function ActionDraft({
   const [actionId, setActionId] = useState<string | undefined>(existing?.id);
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [skipping, setSkipping] = useState(false);
 
   useEffect(() => {
     if (existing && existing.id !== actionId) {
@@ -151,49 +146,58 @@ function ActionDraft({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [text]);
 
-  async function submit() {
-    if (!text.trim()) return;
+  // Single button does double duty: submit when there's text, skip when empty.
+  async function commit() {
     setSubmitting(true);
-    let id = actionId;
-    if (!id) {
-      const r = await fetch("/api/actions", {
+    const trimmed = text.trim();
+    if (trimmed.length === 0) {
+      // Skip: server creates the row if needed, marks submittedAt with empty text.
+      await fetch("/api/actions", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          op: "draft",
+          op: "skip",
           worldId,
           turnId,
           roleId: role.id,
-          draftText: text,
+          actionId,
         }),
       });
-      const j = (await r.json()) as { actionId: string };
-      id = j.actionId;
-      setActionId(id);
+    } else {
+      let id = actionId;
+      if (!id) {
+        const r = await fetch("/api/actions", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            op: "draft",
+            worldId,
+            turnId,
+            roleId: role.id,
+            draftText: text,
+          }),
+        });
+        const j = (await r.json()) as { actionId: string };
+        id = j.actionId;
+        setActionId(id);
+      }
+      await fetch("/api/actions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ op: "submit", actionId: id, text: trimmed }),
+      });
     }
-    await fetch("/api/actions", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ op: "submit", actionId: id, text }),
-    });
     setSubmitting(false);
   }
 
-  async function skip() {
-    setSkipping(true);
-    await fetch("/api/actions", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        op: "skip",
-        worldId,
-        turnId,
-        roleId: role.id,
-        actionId,
-      }),
-    });
-    setSkipping(false);
-  }
+  const isEmpty = text.trim().length === 0;
+  const buttonLabel = submitting
+    ? isEmpty
+      ? "Skipping…"
+      : "Submitting…"
+    : isEmpty
+      ? "Skip"
+      : "Submit action";
 
   return (
     <div className="gb-card">
@@ -212,7 +216,7 @@ function ActionDraft({
       </div>
       <textarea
         className="gb-textarea"
-        placeholder="Phrase your action as a fact: 'We do X because Y.'"
+        placeholder="What's your move this turn?"
         value={text}
         onChange={(e) => setText(e.target.value)}
       />
@@ -225,19 +229,11 @@ function ActionDraft({
         }}
       >
         <button
-          className="gb-btn sm ghost"
-          onClick={skip}
-          disabled={submitting || skipping}
-          title="Submit no action for this role this turn."
-        >
-          {skipping ? "Skipping…" : "Skip"}
-        </button>
-        <button
           className="gb-btn primary sm"
-          onClick={submit}
-          disabled={submitting || skipping || !text.trim()}
+          onClick={commit}
+          disabled={submitting}
         >
-          {submitting ? "Submitting…" : "Submit action"}
+          {buttonLabel}
         </button>
       </div>
     </div>
