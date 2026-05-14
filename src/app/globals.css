@@ -55,11 +55,23 @@ html, body {
 
 /* ——— Top chrome ——— */
 .gb-topbar {
-  height: 44px;
+  min-height: 44px;
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 0 16px;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 6px 16px;
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--border);
+}
+
+/* Bar below the ribbon that holds History link + phase-advance button */
+.gb-shellbar {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 16px;
   background: var(--bg-2);
   border-bottom: 1px solid var(--border);
 }

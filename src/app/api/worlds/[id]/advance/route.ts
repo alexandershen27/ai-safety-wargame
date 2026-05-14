@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db, schema, ensureSchema } from "@/lib/db";
 import { and, eq, isNull } from "drizzle-orm";
 import { ensurePlayer } from "@/lib/auth";
+import { isNotNull } from "drizzle-orm";
 import { NEXT_PHASE, type Phase } from "@/lib/phases";
 import { advanceDate, type TimestepUnit } from "@/lib/timestep";
 import { newId } from "@/lib/ids";
@@ -33,6 +34,21 @@ export async function POST(
   if (!next) return new NextResponse("Already at terminal phase.", { status: 400 });
 
   if (next === "CLOSED") {
+    // Guard: every submitted action must be resolved before close. Reality can't
+    // skip past unresolved work.
+    const submittedActions = await db
+      .select()
+      .from(schema.actions)
+      .where(and(eq(schema.actions.turnId, turn.id), isNotNull(schema.actions.submittedAt)))
+      .all();
+    const unresolved = submittedActions.filter((a) => !a.resolvedText);
+    if (unresolved.length > 0) {
+      return new NextResponse(
+        `Resolve ${unresolved.length} more action${unresolved.length === 1 ? "" : "s"} first.`,
+        { status: 400 },
+      );
+    }
+
     const now = new Date().toISOString();
     await db
       .update(schema.turns)

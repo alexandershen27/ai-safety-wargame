@@ -1,14 +1,14 @@
 "use client";
-// Vote phase: each submitted action shows up with a slider + tag chips per voter.
-// Voters can change their vote freely while VOTE phase is open.
-import { useState, useEffect } from "react";
+// Vote phase. Each submitted action gets a likelihood slider (0-100) + an
+// optional free-text objection. We removed the tag chips — the slider is the
+// signal, the textarea is the explanation.
+//
+// Voters cast one vote per action, regardless of how many roles they hold.
+import { useEffect, useState } from "react";
 import { RoleChip } from "@/components/RoleChip";
 import type { WorldView } from "@/lib/world/state";
 
-const TAGS = ["unrealistic", "needs source", "2nd-order", "strong"] as const;
-
 export function VoteView({
-  worldId: _worldId,
   view,
   you,
 }: {
@@ -17,7 +17,10 @@ export function VoteView({
   you: { id: string; displayName: string };
 }) {
   const submitted = view.actions.filter((a) => a.submittedText);
-  const myFirstRoleId = view.myRoleIds[0];
+  // Vote is one-per-player; voter_role_id is informational. Pick any seat
+  // the player holds (first one) for the row; if they hold none, they're a
+  // spectator and can't vote.
+  const myVoterRoleId = view.myRoleIds[0] ?? null;
 
   return (
     <div style={{ maxWidth: 880, margin: "0 auto", display: "flex", flexDirection: "column", gap: 12 }}>
@@ -42,9 +45,13 @@ export function VoteView({
             actionId={a.id}
             actionText={a.submittedText!}
             role={role}
-            disabled={!myFirstRoleId}
-            voterRoleId={myFirstRoleId ?? null}
-            myVote={myVote ?? null}
+            disabled={!myVoterRoleId}
+            voterRoleId={myVoterRoleId}
+            myVote={
+              myVote
+                ? { likelihood: myVote.likelihood, objection: myVote.objection }
+                : null
+            }
             voteCount={allVotes.length}
             average={avg}
           />
@@ -69,34 +76,30 @@ function ActionVoteCard({
   role: { id: string; name: string; color: string };
   disabled: boolean;
   voterRoleId: string | null;
-  myVote: {
-    likelihood: number;
-    tags: string;
-    objection: string | null;
-  } | null;
+  myVote: { likelihood: number; objection: string | null } | null;
   voteCount: number;
   average: number | null;
 }) {
   const [likelihood, setLikelihood] = useState(myVote?.likelihood ?? 50);
-  const [tags, setTags] = useState<string[]>(() =>
-    myVote ? safeParseTags(myVote.tags) : [],
-  );
   const [objection, setObjection] = useState(myVote?.objection ?? "");
   const [savedAt, setSavedAt] = useState<number | null>(null);
+  // Track whether the user has touched this card yet, so we don't auto-POST
+  // a 50% vote on mount for everyone.
+  const [touched, setTouched] = useState<boolean>(!!myVote);
 
-  // Sync from upstream when poll yields newer state for OUR vote.
+  // Sync from upstream poll (when our row changes).
   useEffect(() => {
     if (myVote) {
       setLikelihood(myVote.likelihood);
-      setTags(safeParseTags(myVote.tags));
       setObjection(myVote.objection ?? "");
+      setTouched(true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [myVote?.likelihood, myVote?.tags, myVote?.objection]);
+  }, [myVote?.likelihood, myVote?.objection]);
 
-  // Debounced upsert.
+  // Debounced upsert when the user has actually interacted.
   useEffect(() => {
-    if (disabled || !voterRoleId) return;
+    if (disabled || !voterRoleId || !touched) return;
     const t = setTimeout(async () => {
       const res = await fetch("/api/votes", {
         method: "POST",
@@ -105,7 +108,7 @@ function ActionVoteCard({
           actionId,
           voterRoleId,
           likelihood,
-          tags,
+          tags: [],
           objection: objection || null,
         }),
       });
@@ -113,29 +116,47 @@ function ActionVoteCard({
     }, 400);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [likelihood, tags, objection]);
-
-  function toggleTag(tag: string) {
-    setTags((cur) => (cur.includes(tag) ? cur.filter((x) => x !== tag) : [...cur, tag]));
-  }
+  }, [likelihood, objection, touched]);
 
   return (
     <div className="gb-card">
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: 8,
+        }}
+      >
         <RoleChip role={role} />
         <span className="gb-mono" style={{ color: "var(--muted)", fontSize: 10 }}>
           {voteCount} vote{voteCount === 1 ? "" : "s"}
           {average !== null ? ` · avg ${average}%` : ""}
         </span>
       </div>
-      <p className="gb-p" style={{ marginBottom: 12 }}>{actionText}</p>
+      <p className="gb-p" style={{ marginBottom: 12 }}>
+        {actionText}
+      </p>
 
       {disabled ? (
         <p className="gb-p" style={{ color: "var(--muted)", fontSize: 11 }}>
-          Spectators can't vote. Sit down at a role to vote.
+          Spectators can't vote.
         </p>
       ) : (
         <>
+          <div style={{ marginBottom: 6 }}>
+            <span
+              className="gb-mono"
+              style={{
+                color: "var(--muted)",
+                fontSize: 10,
+                letterSpacing: "0.08em",
+                textTransform: "uppercase",
+              }}
+            >
+              Likelihood of success
+            </span>
+          </div>
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10 }}>
             <input
               type="range"
@@ -143,34 +164,33 @@ function ActionVoteCard({
               min={0}
               max={100}
               value={likelihood}
-              onChange={(e) => setLikelihood(+e.target.value)}
+              onChange={(e) => {
+                setLikelihood(+e.target.value);
+                setTouched(true);
+              }}
             />
-            <span className="gb-mono" style={{ color: "var(--accent)", minWidth: 36, textAlign: "right" }}>
+            <span
+              className="gb-mono"
+              style={{ color: "var(--accent)", minWidth: 36, textAlign: "right" }}
+            >
               {likelihood}%
             </span>
           </div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
-            {TAGS.map((t) => (
-              <button
-                key={t}
-                type="button"
-                className={"gb-pill" + (tags.includes(t) ? " active" : "")}
-                onClick={() => toggleTag(t)}
-                style={{ cursor: "pointer" }}
-              >
-                {t}
-              </button>
-            ))}
-          </div>
           <textarea
             className="gb-textarea"
-            placeholder="Optional objection / note"
+            placeholder="Optional: why? (objection, support, missing context…)"
             value={objection}
-            onChange={(e) => setObjection(e.target.value)}
+            onChange={(e) => {
+              setObjection(e.target.value);
+              setTouched(true);
+            }}
             style={{ minHeight: 50 }}
           />
           {savedAt && (
-            <span className="gb-mono" style={{ color: "var(--muted)", fontSize: 10 }}>
+            <span
+              className="gb-mono"
+              style={{ color: "var(--muted)", fontSize: 10 }}
+            >
               saved
             </span>
           )}
@@ -178,13 +198,4 @@ function ActionVoteCard({
       )}
     </div>
   );
-}
-
-function safeParseTags(raw: string): string[] {
-  try {
-    const v = JSON.parse(raw);
-    return Array.isArray(v) ? v.filter((x) => typeof x === "string") : [];
-  } catch {
-    return [];
-  }
 }

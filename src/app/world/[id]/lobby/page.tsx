@@ -67,6 +67,7 @@ export default async function LobbyPage({
           worldId={data.world.id}
           isReality={isReality}
           currentPlayerId={player.id}
+          currentPlayerName={player.displayName}
           roles={data.roles.map((r) => ({
             id: r.id,
             name: r.name,

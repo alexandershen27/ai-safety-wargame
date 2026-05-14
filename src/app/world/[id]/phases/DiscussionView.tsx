@@ -1,6 +1,9 @@
 "use client";
-// Discussion: each seated player drafts an action per role-they-occupy. Submit locks it.
-// After submitting, players see all submitted actions (preview of the upcoming vote).
+// Discussion phase. Each seated player drafts an action per role they hold.
+//
+// Other players' submitted actions are hidden until I submit at least one of
+// my own — that gate is enforced by the server (state.ts), so even peeking at
+// the polling JSON can't reveal them. Once I submit, I see all submissions.
 import { useEffect, useState } from "react";
 import { RoleChip } from "@/components/RoleChip";
 import type { WorldView } from "@/lib/world/state";
@@ -16,10 +19,18 @@ export function DiscussionView({
 }) {
   const turn = view.currentTurn!;
   const myRoles = view.roles.filter((r) => view.myRoleIds.includes(r.id));
-  const otherSubmitted = view.actions.filter((a) => a.submittedAt && a.authorPlayerId !== you.id);
+  const submitted = view.actions.filter((a) => a.submittedAt);
 
   return (
-    <div style={{ maxWidth: 880, margin: "0 auto", display: "flex", flexDirection: "column", gap: 24 }}>
+    <div
+      style={{
+        maxWidth: 880,
+        margin: "0 auto",
+        display: "flex",
+        flexDirection: "column",
+        gap: 24,
+      }}
+    >
       {myRoles.length === 0 && (
         <div className="gb-card">
           <p className="gb-p">
@@ -45,31 +56,40 @@ export function DiscussionView({
 
       <div>
         <div className="gb-h" style={{ marginBottom: 8 }}>
-          <span className="ttl">Submitted actions ({otherSubmitted.length + view.actions.filter((a) => a.submittedAt && a.authorPlayerId === you.id).length})</span>
-          <span className="meta">visible once submitted</span>
+          <span className="ttl">Submitted actions</span>
+          <span className="meta">
+            {view.actionsHidden
+              ? "submit one of your own to see others'"
+              : `${submitted.length} so far`}
+          </span>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {view.actions.filter((a) => a.submittedAt).length === 0 && (
+          {submitted.length === 0 && !view.actionsHidden && (
             <p className="gb-p" style={{ color: "var(--muted)" }}>
               No actions submitted yet.
             </p>
           )}
-          {view.actions
-            .filter((a) => a.submittedAt)
-            .map((a) => {
-              const role = view.roles.find((r) => r.id === a.roleId)!;
-              return (
-                <div key={a.id} className="gb-card">
-                  <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}>
-                    <RoleChip role={role} />
-                    <span className="gb-mono" style={{ color: "var(--muted)", fontSize: 10 }}>
-                      submitted
-                    </span>
-                  </div>
-                  <p className="gb-p">{a.submittedText}</p>
+          {view.actionsHidden && (
+            <p className="gb-p" style={{ color: "var(--muted)" }}>
+              Other players' actions appear here after you submit yours.
+            </p>
+          )}
+          {submitted.map((a) => {
+            const role = view.roles.find((r) => r.id === a.roleId)!;
+            return (
+              <div key={a.id} className="gb-card">
+                <div
+                  style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}
+                >
+                  <RoleChip role={role} />
+                  <span className="gb-mono" style={{ color: "var(--muted)", fontSize: 10 }}>
+                    submitted
+                  </span>
                 </div>
-              );
-            })}
+                <p className="gb-p">{a.submittedText}</p>
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>
@@ -96,9 +116,10 @@ function ActionDraft({
   const [actionId, setActionId] = useState<string | undefined>(existing?.id);
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const submitted = !!existing?.submittedAt;
+  // Optimistic: flip to "submitted" instantly on click, even before the next poll.
+  const [optimisticSubmitted, setOptimisticSubmitted] = useState(false);
+  const submitted = !!existing?.submittedAt || optimisticSubmitted;
 
-  // Sync text when the upstream view updates (polling).
   useEffect(() => {
     if (existing && existing.id !== actionId) {
       setActionId(existing.id);
@@ -106,7 +127,7 @@ function ActionDraft({
     }
   }, [existing, actionId]);
 
-  // Debounced auto-save of drafts.
+  // Debounced auto-save of drafts (only while not submitted).
   useEffect(() => {
     if (submitted) return;
     const t = setTimeout(async () => {
@@ -135,8 +156,9 @@ function ActionDraft({
   async function submit() {
     if (!text.trim()) return;
     setSubmitting(true);
-    if (!actionId) {
-      // Save first to get an id.
+    setOptimisticSubmitted(true);
+    let id = actionId;
+    if (!id) {
       const r = await fetch("/api/actions", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -148,26 +170,32 @@ function ActionDraft({
           draftText: text,
         }),
       });
-      const { actionId: id } = (await r.json()) as { actionId: string };
+      const j = (await r.json()) as { actionId: string };
+      id = j.actionId;
       setActionId(id);
-      await fetch("/api/actions", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ op: "submit", actionId: id, text }),
-      });
-    } else {
-      await fetch("/api/actions", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ op: "submit", actionId, text }),
-      });
+    }
+    const r = await fetch("/api/actions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ op: "submit", actionId: id, text }),
+    });
+    if (!r.ok) {
+      // Revert optimistic lock on failure.
+      setOptimisticSubmitted(false);
     }
     setSubmitting(false);
   }
 
   return (
     <div className="gb-card">
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: 8,
+        }}
+      >
         <RoleChip role={role} />
         <span className="gb-mono" style={{ color: "var(--muted)", fontSize: 10 }}>
           {submitted ? "submitted · locked" : savedAt ? "saved" : "drafting"}

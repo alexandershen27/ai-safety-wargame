@@ -6,7 +6,7 @@ import { Topbar } from "@/components/Topbar";
 import { Ribbon } from "@/components/Ribbon";
 import type { WorldView } from "@/lib/world/state";
 import type { Phase } from "@/lib/phases";
-import { formatDate } from "@/lib/timestep";
+import { formatDate, type TimestepUnit } from "@/lib/timestep";
 import { DiscussionView } from "./phases/DiscussionView";
 import { VoteView } from "./phases/VoteView";
 import { ResolveView } from "./phases/ResolveView";
@@ -42,6 +42,10 @@ export function WorldShell({
   const turn = view.currentTurn;
   const phase = (turn?.phase as Phase) ?? "DISCUSSION";
 
+  // For Reality's "Close turn" button: count submitted-but-not-resolved actions.
+  const submittedActions = view.actions.filter((a) => a.submittedAt);
+  const unresolved = submittedActions.filter((a) => !a.resolvedText).length;
+
   return (
     <>
       <Topbar
@@ -53,15 +57,23 @@ export function WorldShell({
       />
       <Ribbon
         worldId={worldId}
-        totalTurns={view.totalTurns}
-        currentTurnNumber={turn?.turnNumber ?? 1}
+        turns={view.allTurns}
+        unit={view.world.timestepUnit as TimestepUnit}
       />
-      <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 16px", background: "var(--bg-2)", borderBottom: "1px solid var(--border)" }}>
-        <Link href={`/world/${worldId}/timeline`} className="gb-mono" style={{ color: "var(--muted)" }}>
+      <div className="gb-shellbar">
+        <Link
+          href={`/world/${worldId}/timeline`}
+          className="gb-mono"
+          style={{ color: "var(--muted)" }}
+        >
           ↺ History
         </Link>
         {view.isReality && (
-          <PhaseAdvanceButton worldId={worldId} phase={phase} />
+          <PhaseAdvanceButton
+            worldId={worldId}
+            phase={phase}
+            unresolved={unresolved}
+          />
         )}
       </div>
 
@@ -70,7 +82,7 @@ export function WorldShell({
           <DiscussionView worldId={worldId} view={view} you={you} />
         )}
         {phase === "VOTE" && <VoteView worldId={worldId} view={view} you={you} />}
-        {phase === "RESOLVE" && <ResolveView worldId={worldId} view={view} you={you} />}
+        {phase === "RESOLVE" && <ResolveView view={view} />}
         {phase === "CLOSED" && (
           <div className="gb-card" style={{ maxWidth: 600, margin: "0 auto" }}>
             <p className="gb-p">Turn closed. Waiting for the next turn to open.</p>
@@ -81,25 +93,50 @@ export function WorldShell({
   );
 }
 
-function PhaseAdvanceButton({ worldId, phase }: { worldId: string; phase: Phase }) {
+function PhaseAdvanceButton({
+  worldId,
+  phase,
+  unresolved,
+}: {
+  worldId: string;
+  phase: Phase;
+  unresolved: number;
+}) {
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const label =
     phase === "DISCUSSION"
       ? "End discussion → Vote"
       : phase === "VOTE"
         ? "End voting → Resolve"
         : phase === "RESOLVE"
-          ? "Close turn → next"
+          ? unresolved > 0
+            ? `Resolve ${unresolved} more to close`
+            : "Close turn → next"
           : null;
   if (!label) return null;
+  const blocked = phase === "RESOLVE" && unresolved > 0;
   async function go() {
+    setError(null);
     setBusy(true);
-    await fetch(`/api/worlds/${worldId}/advance`, { method: "POST" });
+    const res = await fetch(`/api/worlds/${worldId}/advance`, { method: "POST" });
+    if (!res.ok) setError(await res.text());
     setBusy(false);
   }
   return (
-    <button className="gb-btn primary sm" onClick={go} disabled={busy}>
-      {busy ? "…" : label}
-    </button>
+    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+      {error && (
+        <span className="gb-mono" style={{ color: "var(--bad)", fontSize: 11 }}>
+          {error}
+        </span>
+      )}
+      <button
+        className="gb-btn primary sm"
+        onClick={go}
+        disabled={busy || blocked}
+      >
+        {busy ? "…" : label}
+      </button>
+    </div>
   );
 }

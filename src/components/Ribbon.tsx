@@ -1,27 +1,45 @@
 import Link from "next/link";
+import { formatTurnDate } from "@/lib/timestep";
+import type { TimestepUnit } from "@/lib/timestep";
 
+export type RibbonTurn = {
+  id: string;
+  turnNumber: number;
+  dateAtTurn: string;
+  closedAt: string | null;
+};
+
+/**
+ * Renders one node per known turn (closed or open). We deliberately don't fake
+ * future turns — the ribbon shows what's actually happened plus the active one.
+ * The label under each node is the turn's date, formatted to the world's
+ * timestep so we never show redundant precision.
+ */
 export function Ribbon({
   worldId,
-  totalTurns,
-  currentTurnNumber,
+  turns,
+  unit,
 }: {
   worldId: string;
-  totalTurns: number;
-  currentTurnNumber: number;
+  turns: RibbonTurn[];
+  unit: TimestepUnit;
 }) {
-  const items = [];
-  for (let i = 1; i <= Math.max(totalTurns, currentTurnNumber); i++) {
-    const cls =
-      i < currentTurnNumber ? "done" : i === currentTurnNumber ? "now" : "future";
-    const lab =
-      i === currentTurnNumber ? "NOW" : i < currentTurnNumber ? `T-${currentTurnNumber - i}` : `T+${i - currentTurnNumber}`;
-    items.push(
-      <Link key={i} href={`/world/${worldId}/timeline`} className={"gb-turn " + cls}>
-        <div className="num">{String(i).padStart(2, "0")}</div>
-        <div className="node" />
-        <div className="lab">{lab}</div>
-      </Link>,
-    );
-  }
-  return <div className="gb-ribbon">{items}</div>;
+  return (
+    <div className="gb-ribbon">
+      {turns.map((t) => {
+        const cls = t.closedAt ? "done" : "now";
+        return (
+          <Link
+            key={t.id}
+            href={`/world/${worldId}/timeline`}
+            className={"gb-turn " + cls}
+          >
+            <div className="num">{String(t.turnNumber).padStart(2, "0")}</div>
+            <div className="node" />
+            <div className="lab">{formatTurnDate(t.dateAtTurn, unit)}</div>
+          </Link>
+        );
+      })}
+    </div>
+  );
 }

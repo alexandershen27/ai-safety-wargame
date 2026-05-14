@@ -103,6 +103,9 @@ export async function POST(req: NextRequest) {
       .where(eq(schema.actions.id, p.data.actionId))
       .get();
     if (!action) return new NextResponse("Action not found.", { status: 404 });
+    // Resolve is final: once resolvedAt is set, no further edits.
+    if (action.resolvedAt)
+      return new NextResponse("Already resolved.", { status: 409 });
     const turn = await db
       .select()
       .from(schema.turns)
