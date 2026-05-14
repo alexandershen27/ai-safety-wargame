@@ -56,6 +56,8 @@ export async function POST(
       phase: "RESOLVE",
       dateAtTurn: source.dateAtTurn,
       worldStateSnapshot: source.worldStateSnapshot,
+      // Real wall-clock time — sibling order in the graph depends on this.
+      createdAt: new Date().toISOString(),
     })
     .run();
 

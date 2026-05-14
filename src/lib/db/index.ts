@@ -47,9 +47,12 @@ async function bootstrap() {
     {
       table: "turns",
       column: "created_at",
-      // libSQL accepts DEFAULT CURRENT_TIMESTAMP for added columns; existing
-      // rows backfill with the time the ALTER runs.
-      ddl: "ALTER TABLE turns ADD COLUMN created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP",
+      // libSQL/SQLite refuses ALTER ADD COLUMN with a non-constant default
+      // (CURRENT_TIMESTAMP qualifies as non-constant). Add the column as
+      // nullable; the backfill step below populates existing rows from
+      // phase_started_at, and all our INSERTs pass an explicit value going
+      // forward.
+      ddl: "ALTER TABLE turns ADD COLUMN created_at TEXT",
     },
   ];
 
@@ -149,6 +152,12 @@ async function bootstrap() {
       if (!msg.toLowerCase().includes("duplicate column")) throw e;
     }
   }
+
+  // Backfill any nullable columns we added above. Idempotent: each statement
+  // only touches rows that haven't been backfilled yet.
+  await client.execute(
+    "UPDATE turns SET created_at = phase_started_at WHERE created_at IS NULL",
+  );
 
   global.__libsqlBootstrapped = true;
 }

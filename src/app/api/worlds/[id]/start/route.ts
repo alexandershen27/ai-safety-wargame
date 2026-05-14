@@ -43,6 +43,7 @@ export async function POST(
         phase: "DISCUSSION",
         dateAtTurn: world.currentDate,
         worldStateSnapshot: world.worldState,
+        createdAt: new Date().toISOString(),
       })
       .run();
     await db
