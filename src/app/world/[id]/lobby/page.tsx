@@ -1,5 +1,6 @@
 import { redirect, notFound } from "next/navigation";
 import { Topbar } from "@/components/Topbar";
+import { CopyCode } from "@/components/CopyCode";
 import { ensurePlayer } from "@/lib/auth";
 import { loadWorld, loadPlayersForSeats, seatsByRole } from "@/lib/world/load";
 import { LobbyClient } from "./LobbyClient";
@@ -58,12 +59,7 @@ export default async function LobbyPage({
             >
               Join code
             </span>
-            <span
-              className="gb-mono"
-              style={{ fontSize: 22, color: "var(--accent)", letterSpacing: "0.4em" }}
-            >
-              {data.world.joinCode}
-            </span>
+            <CopyCode code={data.world.joinCode} />
           </div>
         </div>
 
