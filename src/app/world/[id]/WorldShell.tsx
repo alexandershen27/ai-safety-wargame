@@ -9,13 +9,14 @@
 //   DISCUSSION + stragglers                 →  "Resolve anyway (2 still drafting)" (warn)
 //   RESOLVE + work pending                  →  "Resolve N more to close" (disabled)
 //   RESOLVE + done                          →  "Close turn → next"
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Topbar } from "@/components/Topbar";
 import { Ribbon } from "@/components/Ribbon";
 import type { WorldView } from "@/lib/world/state";
 import type { Phase } from "@/lib/phases";
 import { formatDate, type TimestepUnit } from "@/lib/timestep";
+import { REFRESH_EVENT, requestRefresh } from "@/lib/refresh";
 import { DiscussionView } from "./phases/DiscussionView";
 import { ResolveView } from "./phases/ResolveView";
 
@@ -31,21 +32,36 @@ export function WorldShell({
   initial: WorldView;
 }) {
   const [view, setView] = useState<WorldView>(initial);
+  // Single-flight guard. If a fetch is already in flight, don't queue another —
+  // the in-flight one will return the freshest state anyway.
+  const inFlight = useRef(false);
 
-  useEffect(() => {
-    let alive = true;
-    const tick = async () => {
-      try {
-        const res = await fetch(`/api/worlds/${worldId}/state`, { cache: "no-store" });
-        if (res.ok && alive) setView(await res.json());
-      } catch {}
-    };
-    const t = setInterval(tick, POLL_MS);
-    return () => {
-      alive = false;
-      clearInterval(t);
-    };
+  const fetchState = useCallback(async () => {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    try {
+      const res = await fetch(`/api/worlds/${worldId}/state`, { cache: "no-store" });
+      if (res.ok) setView(await res.json());
+    } catch {
+      // Network blip — next poll will recover.
+    } finally {
+      inFlight.current = false;
+    }
   }, [worldId]);
+
+  // Slow background poll for picking up other players' changes.
+  useEffect(() => {
+    const t = setInterval(fetchState, POLL_MS);
+    return () => clearInterval(t);
+  }, [fetchState]);
+
+  // Fast refresh after my own mutations. Any child component can fire
+  // requestRefresh() and we'll refetch immediately, bypassing the 2s gap.
+  useEffect(() => {
+    const handler = () => fetchState();
+    window.addEventListener(REFRESH_EVENT, handler);
+    return () => window.removeEventListener(REFRESH_EVENT, handler);
+  }, [fetchState]);
 
   const turn = view.currentTurn;
   const phase = (turn?.phase as Phase) ?? "DISCUSSION";
@@ -177,11 +193,12 @@ function CancelBranchButton({
     );
     if (!ok) return;
     setBusy(true);
-    await fetch(`/api/worlds/${worldId}/cancel-branch`, {
+    const res = await fetch(`/api/worlds/${worldId}/cancel-branch`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ turnId: turn!.id }),
     });
+    if (res.ok) requestRefresh();
     setBusy(false);
   }
 
@@ -241,6 +258,7 @@ function PhaseAdvanceButton({
     setBusy(true);
     const res = await fetch(`/api/worlds/${worldId}/advance`, { method: "POST" });
     if (!res.ok) setError(await res.text());
+    else requestRefresh();
     setBusy(false);
   }
 

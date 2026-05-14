@@ -9,7 +9,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db, schema, ensureSchema } from "@/lib/db";
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import { ensurePlayer } from "@/lib/auth";
 
 const Body = z.object({ turnId: z.string() });
@@ -44,16 +44,16 @@ export async function POST(
     return new NextResponse("Can only cancel a turn that's still in RESOLVE.", { status: 400 });
 
   // Must have a sibling (i.e., was forked from /branch) and no children
-  // (hasn't been advanced yet).
+  // (hasn't been advanced yet). Use isNull() when the target is a root fork,
+  // because eq(col, null) never matches in SQL.
+  const parentFilter = target.parentTurnId
+    ? eq(schema.turns.parentTurnId, target.parentTurnId)
+    : isNull(schema.turns.parentTurnId);
   const allSameParent = await db
     .select()
     .from(schema.turns)
-    .where(
-      and(
-        eq(schema.turns.worldId, worldId),
-        eq(schema.turns.parentTurnId, target.parentTurnId ?? ""),
-      ),
-    )
+    .where(and(eq(schema.turns.worldId, worldId), parentFilter))
+    .orderBy(asc(schema.turns.createdAt))
     .all();
   if (allSameParent.length < 2)
     return new NextResponse("Not a fork — nothing to cancel.", { status: 400 });
@@ -66,7 +66,9 @@ export async function POST(
   if (children.length > 0)
     return new NextResponse("Already committed past this turn.", { status: 400 });
 
-  // Pick a sibling to point at — the one that's NOT being deleted.
+  // Pick the OLDEST sibling (by createdAt) — that's the original branch the
+  // user forked off of. Predictable: canceling always returns you to the
+  // line you were on before forking.
   const sibling = allSameParent.find((t) => t.id !== target.id);
   // Walk that sibling's chain forward to its tip so we don't park on a
   // closed historical turn.

@@ -14,6 +14,7 @@
 import { useEffect, useState } from "react";
 import { RoleChip } from "@/components/RoleChip";
 import type { WorldView } from "@/lib/world/state";
+import { requestRefresh } from "@/lib/refresh";
 
 const OUTCOMES: { id: string; label: string; symbol: string; color: string }[] = [
   { id: "success", label: "Success", symbol: "✓", color: "var(--good)" },
@@ -165,6 +166,9 @@ function ResolveCard({
     } else {
       // Re-enable poll syncing; next tick will reflect the just-saved values.
       setTouched(false);
+      // Don't wait 2s for the poll — refetch now so the "Saved" badge appears
+      // immediately and other players see the resolution sooner.
+      requestRefresh();
     }
     setBusy(false);
   }

@@ -12,6 +12,7 @@
 import { useEffect, useState } from "react";
 import { RoleChip } from "@/components/RoleChip";
 import type { WorldView } from "@/lib/world/state";
+import { requestRefresh } from "@/lib/refresh";
 import { VoteList } from "./VoteList";
 
 export function DiscussionView({
@@ -185,6 +186,9 @@ function ActionDraft({
         body: JSON.stringify({ op: "submit", actionId: id, text: trimmed }),
       });
     }
+    // Close the visible gap: refetch state now so the draft card unmounts
+    // and the action appears in the vote list immediately.
+    requestRefresh();
     setSubmitting(false);
   }
 
