@@ -1,5 +1,15 @@
 "use client";
 // Top-level client shell. Polls /api/worlds/:id/state every 2s and routes by phase.
+//
+// The advance button is context-aware:
+//   DISCUSSION + all submitted: "End discussion → Resolve"
+//                               (server skips VOTE entirely)
+//   DISCUSSION + stragglers:    "Force vote (3 still drafting)"
+//                               (warning label; advances to VOTE)
+//   VOTE + everyone voted:      "End voting → Resolve"
+//   VOTE + voters unfinished:   "Resolve anyway (2 still voting)"
+//   RESOLVE + work pending:     "Resolve N more to close" — disabled
+//   RESOLVE + done:             "Close turn → next"
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Topbar } from "@/components/Topbar";
@@ -42,10 +52,6 @@ export function WorldShell({
   const turn = view.currentTurn;
   const phase = (turn?.phase as Phase) ?? "DISCUSSION";
 
-  // For Reality's "Close turn" button: count submitted-but-not-resolved actions.
-  const submittedActions = view.actions.filter((a) => a.submittedAt);
-  const unresolved = submittedActions.filter((a) => !a.resolvedText).length;
-
   return (
     <>
       <Topbar
@@ -68,13 +74,7 @@ export function WorldShell({
         >
           ↺ History
         </Link>
-        {view.isReality && (
-          <PhaseAdvanceButton
-            worldId={worldId}
-            phase={phase}
-            unresolved={unresolved}
-          />
-        )}
+        {view.isReality && <PhaseAdvanceButton worldId={worldId} view={view} />}
       </div>
 
       <main style={{ flex: 1, overflowY: "auto", padding: 24 }}>
@@ -93,29 +93,71 @@ export function WorldShell({
   );
 }
 
+type AdvanceState = {
+  label: string;
+  warn: boolean;
+  blocked: boolean;
+};
+
+function computeAdvanceState(view: WorldView): AdvanceState | null {
+  const phase = (view.currentTurn?.phase as Phase) ?? "DISCUSSION";
+  const { submitProgress, voteProgress } = view;
+  const submittedActions = view.actions.filter((a) => a.submittedText);
+
+  if (phase === "DISCUSSION") {
+    const allSubmitted =
+      submitProgress.expected === 0 ||
+      submitProgress.submitted >= submitProgress.expected;
+    if (allSubmitted) {
+      return { label: "End discussion → Resolve", warn: false, blocked: false };
+    }
+    const pending = submitProgress.expected - submitProgress.submitted;
+    return {
+      label: `Force vote (${pending} still drafting)`,
+      warn: true,
+      blocked: false,
+    };
+  }
+
+  if (phase === "VOTE") {
+    const pendingVoters = voteProgress.total - voteProgress.finished;
+    if (pendingVoters <= 0) {
+      return { label: "End voting → Resolve", warn: false, blocked: false };
+    }
+    return {
+      label: `Resolve anyway (${pendingVoters} still voting)`,
+      warn: true,
+      blocked: false,
+    };
+  }
+
+  if (phase === "RESOLVE") {
+    const unresolved = submittedActions.filter((a) => !a.resolvedText).length;
+    if (unresolved > 0) {
+      return {
+        label: `Resolve ${unresolved} more to close`,
+        warn: false,
+        blocked: true,
+      };
+    }
+    return { label: "Close turn → next", warn: false, blocked: false };
+  }
+
+  return null;
+}
+
 function PhaseAdvanceButton({
   worldId,
-  phase,
-  unresolved,
+  view,
 }: {
   worldId: string;
-  phase: Phase;
-  unresolved: number;
+  view: WorldView;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const label =
-    phase === "DISCUSSION"
-      ? "End discussion → Vote"
-      : phase === "VOTE"
-        ? "End voting → Resolve"
-        : phase === "RESOLVE"
-          ? unresolved > 0
-            ? `Resolve ${unresolved} more to close`
-            : "Close turn → next"
-          : null;
-  if (!label) return null;
-  const blocked = phase === "RESOLVE" && unresolved > 0;
+  const state = computeAdvanceState(view);
+  if (!state) return null;
+
   async function go() {
     setError(null);
     setBusy(true);
@@ -123,6 +165,7 @@ function PhaseAdvanceButton({
     if (!res.ok) setError(await res.text());
     setBusy(false);
   }
+
   return (
     <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
       {error && (
@@ -131,11 +174,19 @@ function PhaseAdvanceButton({
         </span>
       )}
       <button
-        className="gb-btn primary sm"
+        className={"gb-btn sm " + (state.warn ? "" : "primary")}
         onClick={go}
-        disabled={busy || blocked}
+        disabled={busy || state.blocked}
+        style={
+          state.warn
+            ? {
+                borderColor: "var(--warn)",
+                color: "var(--warn)",
+              }
+            : undefined
+        }
       >
-        {busy ? "…" : label}
+        {busy ? "…" : state.label}
       </button>
     </div>
   );
