@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db, schema, ensureSchema } from "@/lib/db";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNotNull, ne } from "drizzle-orm";
 import { ensurePlayer } from "@/lib/auth";
 import { newId } from "@/lib/ids";
 
@@ -96,6 +96,26 @@ export async function POST(req: NextRequest) {
     if (action.authorPlayerId !== player.id)
       return new NextResponse("Not your action.", { status: 403 });
     if (action.submittedAt) return NextResponse.json({ ok: true });
+    // First-submit-wins for co-seats: if anyone else already locked in an
+    // action for this (turn, role), bail. Status 409 so the client can show
+    // a "submitted by your co-seat" notice and bounce to the vote view.
+    const sibling = await db
+      .select()
+      .from(schema.actions)
+      .where(
+        and(
+          eq(schema.actions.turnId, action.turnId),
+          eq(schema.actions.roleId, action.roleId),
+          ne(schema.actions.id, action.id),
+          isNotNull(schema.actions.submittedAt),
+        ),
+      )
+      .get();
+    if (sibling)
+      return new NextResponse(
+        "A co-seat already submitted for this role.",
+        { status: 409 },
+      );
     await db
       .update(schema.actions)
       .set({
@@ -123,6 +143,26 @@ export async function POST(req: NextRequest) {
       )
       .get();
     if (!seat) return new NextResponse("Not seated in that role.", { status: 403 });
+
+    // Same first-submit-wins rule applies to skips — once one co-seat has
+    // committed (action OR skip) for the role this turn, no one else can.
+    const sibling = await db
+      .select()
+      .from(schema.actions)
+      .where(
+        and(
+          eq(schema.actions.turnId, p.data.turnId),
+          eq(schema.actions.roleId, p.data.roleId),
+          ne(schema.actions.authorPlayerId, player.id),
+          isNotNull(schema.actions.submittedAt),
+        ),
+      )
+      .get();
+    if (sibling)
+      return new NextResponse(
+        "A co-seat already submitted for this role.",
+        { status: 409 },
+      );
 
     const now = new Date().toISOString();
     let actionId = p.data.actionId;

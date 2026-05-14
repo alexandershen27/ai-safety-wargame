@@ -19,7 +19,12 @@ export function CreateWorldForm({ defaultName }: { defaultName: string }) {
   const [startDate, setStartDate] = useState(today);
   const [timestepUnit, setTimestepUnit] =
     useState<"day" | "week" | "month" | "year">("month");
-  const [timestepAmount, setTimestepAmount] = useState(1);
+  // Stored as a string so the user can transiently clear the field (delete
+  // everything to retype "12"); we parse + clamp at submit time. A useState
+  // that auto-clamped on every keystroke meant typing "12" with the field
+  // currently showing "1" required selecting + replacing, since deleting
+  // the "1" snapped back to 1.
+  const [timestepAmount, setTimestepAmount] = useState("1");
   const [roles, setRoles] = useState<RoleDraft[]>([
     { name: "USG", color: ROLE_PALETTE[1] },
     { name: "Frontier Cos.", color: ROLE_PALETTE[0] },
@@ -48,6 +53,7 @@ export function CreateWorldForm({ defaultName }: { defaultName: string }) {
     if (roles.length < 1) return setError("At least one role required.");
     if (roles.some((r) => !r.name.trim()))
       return setError("Every role needs a name.");
+    const amount = Math.max(1, parseInt(timestepAmount, 10) || 1);
     setSubmitting(true);
     const res = await fetch("/api/worlds", {
       method: "POST",
@@ -57,7 +63,7 @@ export function CreateWorldForm({ defaultName }: { defaultName: string }) {
         displayName: displayName.trim() || "Reality",
         startDate,
         timestepUnit,
-        timestepAmount,
+        timestepAmount: amount,
         roles: roles.map((r) => ({ name: r.name.trim(), color: r.color })),
       }),
     });
@@ -103,7 +109,11 @@ export function CreateWorldForm({ defaultName }: { defaultName: string }) {
             type="number"
             min={1}
             value={timestepAmount}
-            onChange={(e) => setTimestepAmount(Math.max(1, +e.target.value || 1))}
+            onChange={(e) => setTimestepAmount(e.target.value)}
+            onBlur={() => {
+              const n = Math.max(1, parseInt(timestepAmount, 10) || 1);
+              setTimestepAmount(String(n));
+            }}
           />
         </Field>
         <Field label="Step unit">

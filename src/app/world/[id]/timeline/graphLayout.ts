@@ -45,6 +45,12 @@ export type GraphLayout = {
   connectors: Connector[];
   numLanes: number;
   numCols: number;
+  /**
+   * Smallest turnNumber seen. Used by the renderer to translate
+   * `turnNumber → column index` so worlds with a T0 boot turn don't push
+   * everything off the left edge (column = turnNumber - minTurnNumber).
+   */
+  minTurnNumber: number;
 };
 
 export function layoutBranchGraph(
@@ -52,8 +58,15 @@ export function layoutBranchGraph(
   currentTurnId: string | null,
 ): GraphLayout {
   if (turns.length === 0) {
-    return { nodes: [], connectors: [], numLanes: 0, numCols: 0 };
+    return {
+      nodes: [],
+      connectors: [],
+      numLanes: 0,
+      numCols: 0,
+      minTurnNumber: 1,
+    };
   }
+  const minTurnNumber = Math.min(...turns.map((t) => t.turnNumber));
 
   const byId = new Map(turns.map((t) => [t.id, t]));
   const childrenByParent = new Map<string | null, TurnNode[]>();
@@ -103,7 +116,8 @@ export function layoutBranchGraph(
   }
 
   const numLanes = (Math.max(0, ...laneById.values()) + 1) || 1;
-  const numCols = Math.max(...turns.map((t) => t.turnNumber)) || 1;
+  const maxTurnNumber = Math.max(...turns.map((t) => t.turnNumber));
+  const numCols = Math.max(1, maxTurnNumber - minTurnNumber + 1);
 
   const nodes: LaidOutTurn[] = turns.map((t) => {
     const allSameParent = childrenByParent.get(t.parentTurnId)?.length ?? 1;
@@ -133,5 +147,5 @@ export function layoutBranchGraph(
     });
   }
 
-  return { nodes, connectors, numLanes, numCols };
+  return { nodes, connectors, numLanes, numCols, minTurnNumber };
 }

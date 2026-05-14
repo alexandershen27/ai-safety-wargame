@@ -66,9 +66,12 @@ const NODE_HEIGHT = 56;
 const PAD_X = 16;
 const PAD_Y = 16;
 
-function nodeCenterX(col: number) {
-  // turn numbers are 1-indexed
-  return PAD_X + (col - 1) * COL_WIDTH + NODE_WIDTH / 2;
+function nodeCenterX(turnNumber: number, minTurnNumber: number) {
+  // Column index = turnNumber - minTurnNumber so a T0 boot turn (turnNumber=0)
+  // sits at column 0 instead of off-canvas at column -1.
+  return (
+    PAD_X + (turnNumber - minTurnNumber) * COL_WIDTH + NODE_WIDTH / 2
+  );
 }
 function nodeCenterY(lane: number) {
   return PAD_Y + lane * LANE_HEIGHT + NODE_HEIGHT / 2;
@@ -140,9 +143,16 @@ export function BranchGraphClient({
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ toTurnId }),
     });
-    if (!r.ok) setError(await r.text());
-    setBusy(false);
-    router.refresh();
+    if (!r.ok) {
+      setError(await r.text());
+      setBusy(false);
+      router.refresh();
+      return;
+    }
+    // Land on the world page so the player goes straight to whichever phase
+    // is now active (DISCUSSION for a fresh leaf-continue, RESOLVE for a
+    // mid-resolution jump). Mirrors how "Resolve Differently" navigates.
+    router.push(`/world/${worldId}`);
   }
 
   return (
@@ -162,9 +172,11 @@ export function BranchGraphClient({
           style={{ position: "absolute", top: 0, left: 0, pointerEvents: "none" }}
         >
           {layout.connectors.map((c) => {
-            const fromX = nodeCenterX(c.fromCol) + NODE_WIDTH / 2; // right edge of parent
+            const fromX =
+              nodeCenterX(c.fromCol, layout.minTurnNumber) + NODE_WIDTH / 2; // right edge of parent
             const fromY = nodeCenterY(c.fromLane);
-            const toX = nodeCenterX(c.toCol) - NODE_WIDTH / 2; // left edge of child
+            const toX =
+              nodeCenterX(c.toCol, layout.minTurnNumber) - NODE_WIDTH / 2; // left edge of child
             const toY = nodeCenterY(c.toLane);
             // Simple 3-segment path: horizontal stub from parent, single
             // diagonal across the gap, horizontal stub into child. Same lane
@@ -192,7 +204,8 @@ export function BranchGraphClient({
 
         {/* Nodes */}
         {layout.nodes.map((n) => {
-          const left = PAD_X + (n.turnNumber - 1) * COL_WIDTH;
+          const left =
+            PAD_X + (n.turnNumber - layout.minTurnNumber) * COL_WIDTH;
           const top = PAD_Y + n.lane * LANE_HEIGHT;
           const sel = n.id === selectedId;
           const closed = !!n.closedAt;

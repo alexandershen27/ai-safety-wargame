@@ -26,12 +26,14 @@ export function DiscussionView({
 }) {
   const turn = view.currentTurn!;
   const myRoles = view.roles.filter((r) => view.myRoleIds.includes(r.id));
-  // Only render a draft card for roles where this player hasn't submitted yet.
+  // Only render a draft card for roles that don't yet have ANY submission this
+  // turn. Co-seats share a role's lock: once one of them submits, the role is
+  // done for everyone (first-submit-wins) and the others skip drafting.
   const pendingRoles = myRoles.filter((role) => {
-    const myAction = view.actions.find(
-      (a) => a.roleId === role.id && a.authorPlayerId === you.id,
+    const anySubmitted = view.actions.some(
+      (a) => a.roleId === role.id && a.submittedAt,
     );
-    return !myAction?.submittedAt;
+    return !anySubmitted;
   });
   const canSeeOthers = !view.actionsHidden;
 

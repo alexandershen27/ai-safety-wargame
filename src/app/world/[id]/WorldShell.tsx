@@ -19,6 +19,7 @@ import { formatDate, type TimestepUnit } from "@/lib/timestep";
 import { REFRESH_EVENT, requestRefresh } from "@/lib/refresh";
 import { DiscussionView } from "./phases/DiscussionView";
 import { ResolveView } from "./phases/ResolveView";
+import { RoleMenu } from "./RoleMenu";
 
 const POLL_MS = 2000;
 
@@ -92,12 +93,26 @@ export function WorldShell({
         >
           ↺ History
         </Link>
-        {view.isReality && (
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <CancelBranchButton worldId={worldId} view={view} />
-            <PhaseAdvanceButton worldId={worldId} view={view} />
-          </div>
-        )}
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <RoleMenu
+            worldId={worldId}
+            roles={view.roles}
+            myRoleIds={view.myRoleIds}
+            seatCountsByRole={view.seats.reduce(
+              (acc, s) => {
+                acc[s.roleId] = (acc[s.roleId] ?? 0) + 1;
+                return acc;
+              },
+              {} as Record<string, number>,
+            )}
+          />
+          {view.isReality && (
+            <>
+              <CancelBranchButton worldId={worldId} view={view} />
+              <PhaseAdvanceButton worldId={worldId} view={view} />
+            </>
+          )}
+        </div>
       </div>
 
       <main style={{ flex: 1, overflowY: "auto", padding: 24 }}>

@@ -111,7 +111,9 @@ export async function getWorldView(
   const isReality = world.realityPlayerId === currentPlayerId;
   const inDiscussion = currentTurn?.phase === "DISCUSSION";
 
-  // Strict gate: have I submitted an action for EVERY role I'm seated at?
+  // Strict gate: every role I'm seated at must have AN action submitted this
+  // turn. Co-seats share the gate — if any one of them submits for the role,
+  // every co-seat is unblocked (first-submit-wins; the rest can't re-submit).
   const myRoleIds = rawSeats
     .filter((s) => s.playerId === currentPlayerId)
     .map((s) => s.roleId);
@@ -119,10 +121,7 @@ export async function getWorldView(
     myRoleIds.length > 0 &&
     myRoleIds.every((roleId) =>
       rawActions.some(
-        (a) =>
-          a.roleId === roleId &&
-          a.authorPlayerId === currentPlayerId &&
-          a.submittedAt !== null,
+        (a) => a.roleId === roleId && a.submittedAt !== null,
       ),
     );
 
@@ -136,8 +135,15 @@ export async function getWorldView(
   const actionsHidden =
     inDiscussion &&
     (hasSeats ? !iHaveSubmittedAll : !isReality);
+  // When hidden, surface my own drafts AND any co-seat submission on a role
+  // I'm seated at — so I can see that the role got locked in by someone else.
+  // Other players' actions on roles I don't share stay invisible.
+  const mySeatedRoleSet = new Set(myRoleIds);
   const actions = actionsHidden
-    ? rawActions.filter((a) => a.authorPlayerId === currentPlayerId)
+    ? rawActions.filter(
+        (a) =>
+          a.authorPlayerId === currentPlayerId || mySeatedRoleSet.has(a.roleId),
+      )
     : rawActions;
 
   // Vote payload is filtered to whatever actions the caller can see.
@@ -150,16 +156,12 @@ export async function getWorldView(
         .all()
     : [];
 
-  // submitProgress: every seat is expected to submit one action this turn.
-  // A seat counts as "submitted" if there's any action for (turn, role, player)
-  // with submittedAt set.
-  const submittedSeatCount = rawSeats.filter((s) =>
-    rawActions.some(
-      (a) =>
-        a.roleId === s.roleId &&
-        a.authorPlayerId === s.playerId &&
-        a.submittedAt !== null,
-    ),
+  // submitProgress: one expected submission per seated ROLE (not seat — co-
+  // seats share their role's submission). "submitted" = at least one action
+  // for that role has submittedAt set.
+  const seatedRoleIds = Array.from(new Set(rawSeats.map((s) => s.roleId)));
+  const submittedRoleCount = seatedRoleIds.filter((roleId) =>
+    rawActions.some((a) => a.roleId === roleId && a.submittedAt !== null),
   ).length;
 
   // voteProgress: count how many seated PLAYERS (not seats) have voted on
@@ -216,8 +218,8 @@ export async function getWorldView(
     actionsHidden,
     iHaveSubmittedAll,
     submitProgress: {
-      submitted: submittedSeatCount,
-      expected: rawSeats.length,
+      submitted: submittedRoleCount,
+      expected: seatedRoleIds.length,
     },
     voteProgress: {
       finished: finishedVoterCount,

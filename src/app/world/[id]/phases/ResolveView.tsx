@@ -11,7 +11,7 @@
 //
 // Skipped actions (submittedAt set, submittedText empty) show up as a muted
 // one-liner. They don't need a resolution — the player chose to do nothing.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { RoleChip } from "@/components/RoleChip";
 import type { WorldView } from "@/lib/world/state";
 import { requestRefresh } from "@/lib/refresh";
@@ -129,19 +129,35 @@ function ResolveCard({
   const [outcome, setOutcome] = useState<string>(existingOutcome ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // "touched" tracks whether the local state diverges from server state.
-  // Polls only overwrite the form when it's clean — so we don't clobber
-  // Reality's in-progress edits with a stale snapshot.
-  const [touched, setTouched] = useState(false);
+  // Track the LAST server value we synced into local state. Sync rule: when
+  // a fresh server value arrives, only overwrite local if the user hasn't
+  // diverged from the previous server value. This survives the
+  // brief window after save where setTouched(false) lands before the
+  // refetch returns — the old "touched" boolean reset stale `existing*`
+  // back over the user's just-saved edit.
+  const lastServerRef = useRef({
+    resolved: existingResolved ?? "",
+    outcome: existingOutcome ?? "",
+  });
   // Outcome is what makes an action resolved. Text is optional narration.
   const isResolved = !!existingOutcome;
 
   useEffect(() => {
-    if (!touched) {
-      setResolved(existingResolved ?? "");
-      setOutcome(existingOutcome ?? "");
+    const nextResolved = existingResolved ?? "";
+    const nextOutcome = existingOutcome ?? "";
+    const localUntouched =
+      resolved === lastServerRef.current.resolved &&
+      outcome === lastServerRef.current.outcome;
+    if (localUntouched) {
+      setResolved(nextResolved);
+      setOutcome(nextOutcome);
     }
-  }, [existingResolved, existingOutcome, touched]);
+    lastServerRef.current = { resolved: nextResolved, outcome: nextOutcome };
+    // We intentionally exclude `resolved` and `outcome` from deps — including
+    // them would re-fire this effect on every keystroke, causing local edits
+    // to be classified as "untouched" against themselves and reverted.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [existingResolved, existingOutcome]);
 
   const isDirty =
     (resolved ?? "") !== (existingResolved ?? "") ||
@@ -164,8 +180,10 @@ function ResolveCard({
     if (!r.ok) {
       setError(await r.text());
     } else {
-      // Re-enable poll syncing; next tick will reflect the just-saved values.
-      setTouched(false);
+      // Pretend the server already echoed back what we just sent. Next poll
+      // arriving with the same values will hit `localUntouched === true` and
+      // sync cleanly; if the user types more before then, their edits stick.
+      lastServerRef.current = { resolved, outcome };
       // Don't wait 2s for the poll — refetch now so the "Saved" badge appears
       // immediately and other players see the resolution sooner.
       requestRefresh();
@@ -232,10 +250,7 @@ function ResolveCard({
             className="gb-textarea"
             placeholder="Optional: how did it play out?"
             value={resolved}
-            onChange={(e) => {
-              setResolved(e.target.value);
-              setTouched(true);
-            }}
+            onChange={(e) => setResolved(e.target.value)}
           />
           <div
             style={{
@@ -248,10 +263,7 @@ function ResolveCard({
           >
             <OutcomePicker
               value={outcome}
-              onChange={(v) => {
-                setOutcome(v);
-                setTouched(true);
-              }}
+              onChange={(v) => setOutcome(v)}
             />
             {error && (
               <span

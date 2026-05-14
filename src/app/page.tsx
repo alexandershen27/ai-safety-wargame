@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Topbar } from "@/components/Topbar";
 import { ensurePlayer } from "@/lib/auth";
 import { getRecentWorldsForPlayer } from "@/lib/world/recent";
+import { RecentWorldsList } from "./RecentWorldsList";
 
 export const dynamic = "force-dynamic";
 
@@ -67,52 +68,15 @@ export default async function Home() {
                 <span className="ttl">Your worlds</span>
                 <span className="meta">{recent.length}</span>
               </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {recent.map((w) => (
-                  <Link
-                    key={w.id}
-                    href={w.status === "lobby" ? `/world/${w.id}/lobby` : `/world/${w.id}`}
-                    className="gb-card"
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 12,
-                      textDecoration: "none",
-                    }}
-                  >
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 8,
-                          marginBottom: 2,
-                        }}
-                      >
-                        <span style={{ color: "var(--text)", fontSize: 14 }}>
-                          {w.name}
-                        </span>
-                        {w.isReality && (
-                          <span className="gb-pill accent">Reality</span>
-                        )}
-                        <span
-                          className="gb-mono"
-                          style={{ color: "var(--muted)", fontSize: 10 }}
-                        >
-                          {w.status}
-                        </span>
-                      </div>
-                      <div
-                        className="gb-mono"
-                        style={{ color: "var(--muted)", fontSize: 11 }}
-                      >
-                        code {w.joinCode}
-                      </div>
-                    </div>
-                    <span style={{ color: "var(--muted)" }}>→</span>
-                  </Link>
-                ))}
-              </div>
+              <RecentWorldsList
+                worlds={recent.map((w) => ({
+                  id: w.id,
+                  name: w.name,
+                  joinCode: w.joinCode,
+                  status: w.status,
+                  isReality: w.isReality,
+                }))}
+              />
             </section>
           )}
         </div>
