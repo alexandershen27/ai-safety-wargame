@@ -7,26 +7,46 @@ export type RibbonTurn = {
   turnNumber: number;
   dateAtTurn: string;
   closedAt: string | null;
+  parentTurnId: string | null;
 };
 
 /**
- * Renders one node per known turn (closed or open). We deliberately don't fake
- * future turns — the ribbon shows what's actually happened plus the active one.
- * The label under each node is the turn's date, formatted to the world's
- * timestep so we never show redundant precision.
+ * Renders the ACTIVE chain only — the parent walk from currentTurnId back to
+ * root. Branches on other lanes don't appear here; they're only visible on
+ * the dedicated timeline page. Rationale: the top-of-page ribbon is for
+ * orientation ("where am I in the run?") — showing every branch's history
+ * just confuses that.
  */
 export function Ribbon({
   worldId,
   turns,
+  currentTurnId,
   unit,
 }: {
   worldId: string;
   turns: RibbonTurn[];
+  currentTurnId: string | null;
   unit: TimestepUnit;
 }) {
+  const chain: RibbonTurn[] = [];
+  if (currentTurnId) {
+    const byId = new Map(turns.map((t) => [t.id, t]));
+    let cur: string | null = currentTurnId;
+    while (cur) {
+      const t = byId.get(cur);
+      if (!t) break;
+      chain.push(t);
+      cur = t.parentTurnId;
+    }
+    chain.reverse(); // root → tip
+  }
+  // Fallback: if we couldn't resolve a chain (legacy worlds), just show
+  // turns in their natural order.
+  const display = chain.length > 0 ? chain : turns;
+
   return (
     <div className="gb-ribbon">
-      {turns.map((t) => {
+      {display.map((t) => {
         const cls = t.closedAt ? "done" : "now";
         return (
           <Link

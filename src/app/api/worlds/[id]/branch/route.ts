@@ -61,9 +61,11 @@ export async function POST(
     })
     .run();
 
-  // Copy actions from source to the new branch. Each new action is "submitted"
-  // (preserving the original submittedText/Time) but NOT resolved yet —
-  // Reality writes fresh resolutions.
+  // Copy actions from source AND their existing resolutions. Reality typically
+  // forks to tweak one or two outcomes, not replay from scratch — so it's much
+  // friendlier to land them with everything pre-filled. They can update the
+  // bits they want differently and immediately close, or close as-is to make a
+  // truly identical "what-if" branch.
   const sourceActions = await db
     .select()
     .from(schema.actions)
@@ -86,12 +88,12 @@ export async function POST(
         draftText: a.draftText,
         submittedText: a.submittedText,
         deltas: a.deltas,
-        resolvedText: null,
-        resolvedOutcome: null,
+        resolvedText: a.resolvedText,
+        resolvedOutcome: a.resolvedOutcome,
         resolutionOrder: a.resolutionOrder,
         visibility: a.visibility,
         submittedAt: a.submittedAt,
-        resolvedAt: null,
+        resolvedAt: a.resolvedAt,
       })
       .run();
   }

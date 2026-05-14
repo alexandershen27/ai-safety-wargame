@@ -65,6 +65,7 @@ export function WorldShell({
       <Ribbon
         worldId={worldId}
         turns={view.allTurns}
+        currentTurnId={view.world.currentTurnId ?? turn?.id ?? null}
         unit={view.world.timestepUnit as TimestepUnit}
       />
       <div className="gb-shellbar">
@@ -75,7 +76,12 @@ export function WorldShell({
         >
           ↺ History
         </Link>
-        {view.isReality && <PhaseAdvanceButton worldId={worldId} view={view} />}
+        {view.isReality && (
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <CancelBranchButton worldId={worldId} view={view} />
+            <PhaseAdvanceButton worldId={worldId} view={view} />
+          </div>
+        )}
       </div>
 
       <main style={{ flex: 1, overflowY: "auto", padding: 24 }}>
@@ -127,7 +133,8 @@ function computeAdvanceState(view: WorldView): AdvanceState | null {
     const submittedActions = view.actions.filter(
       (a) => a.submittedAt && (a.submittedText ?? "").trim().length > 0,
     );
-    const unresolved = submittedActions.filter((a) => !a.resolvedText).length;
+    // An action is "resolved" once it has an outcome — text is optional.
+    const unresolved = submittedActions.filter((a) => !a.resolvedOutcome).length;
     if (unresolved > 0) {
       return {
         label: `Resolve ${unresolved} more to close`,
@@ -139,6 +146,60 @@ function computeAdvanceState(view: WorldView): AdvanceState | null {
   }
 
   return null;
+}
+
+/**
+ * "Cancel branch" only appears when the current turn is a provisional fork —
+ * RESOLVE phase, has a sibling (was created via /branch), has no children
+ * yet. Discards the turn server-side and points the world back at the
+ * sibling's chain.
+ */
+function CancelBranchButton({
+  worldId,
+  view,
+}: {
+  worldId: string;
+  view: WorldView;
+}) {
+  const [busy, setBusy] = useState(false);
+  const turn = view.currentTurn;
+  if (!turn || turn.phase !== "RESOLVE") return null;
+  const sameParent = view.allTurns.filter(
+    (t) => t.parentTurnId === turn.parentTurnId,
+  );
+  const hasSibling = sameParent.length > 1;
+  const hasChildren = view.allTurns.some((t) => t.parentTurnId === turn.id);
+  if (!hasSibling || hasChildren) return null;
+
+  async function cancel() {
+    const ok = window.confirm(
+      "Discard this branch? The resolutions you set won't be saved.",
+    );
+    if (!ok) return;
+    setBusy(true);
+    await fetch(`/api/worlds/${worldId}/cancel-branch`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ turnId: turn!.id }),
+    });
+    setBusy(false);
+  }
+
+  return (
+    <button
+      type="button"
+      className="gb-btn sm"
+      onClick={cancel}
+      disabled={busy}
+      style={{
+        borderColor: "var(--bad)",
+        color: "var(--bad)",
+      }}
+      title="Discard this fork and return to the original branch."
+    >
+      {busy ? "…" : "✕ Cancel branch"}
+    </button>
+  );
 }
 
 function PhaseAdvanceButton({
@@ -153,7 +214,29 @@ function PhaseAdvanceButton({
   const state = computeAdvanceState(view);
   if (!state) return null;
 
+  // Build a confirmation message that names what's unfinished. Browsers'
+  // native confirm dialog is plenty for this one decision.
+  function confirmMessage(): string {
+    const phase = view.currentTurn?.phase;
+    if (phase === "DISCUSSION" || phase === "VOTE") {
+      const stragglers =
+        view.submitProgress.expected - view.submitProgress.submitted;
+      if (stragglers > 0) {
+        return `${stragglers} seat${stragglers === 1 ? "" : "s"} haven't submitted yet. Their action${
+          stragglers === 1 ? "" : "s"
+        } will be dropped for this turn. Continue to Resolve?`;
+      }
+      const pendingVoters = view.voteProgress.total - view.voteProgress.finished;
+      return `${pendingVoters} player${pendingVoters === 1 ? "" : "s"} haven't finished voting on every action. Continue to Resolve anyway?`;
+    }
+    return "Continue?";
+  }
+
   async function go() {
+    if (state!.warn) {
+      const ok = window.confirm(confirmMessage());
+      if (!ok) return;
+    }
     setError(null);
     setBusy(true);
     const res = await fetch(`/api/worlds/${worldId}/advance`, { method: "POST" });

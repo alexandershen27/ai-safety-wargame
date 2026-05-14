@@ -76,9 +76,7 @@ export function DiscussionView({
           <span className="meta">
             {canSeeOthers
               ? `${view.submitProgress.submitted} of ${view.submitProgress.expected} submitted`
-              : myRoles.length === 0
-                ? "spectators wait for resolution"
-                : "submit your actions to see and vote on others'"}
+              : null}
           </span>
         </div>
         {canSeeOthers && (

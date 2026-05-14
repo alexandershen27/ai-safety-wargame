@@ -1,17 +1,23 @@
 "use client";
 // Branch graph + turn details panel for the timeline page.
 //
-// Horizontal layout: columns = turn_number, lanes (rows) = branch identity.
-// The active branch occupies lane 0. Connectors between parent and child are
-// SVG paths with a single 45-degree-ish diagonal bend (git-graph style).
+// Horizontal layout: columns = turn_number, lanes = branch identity. Original
+// chain stays on lane 0; siblings fork onto new lanes by creation time.
+// Connectors are SVG paths with a single diagonal bend (git-graph style).
 //
 // Clicking a node selects it and shows its actions/resolutions below. Reality
-// gets two buttons on closed nodes:
-//   - "Redo this turn"  -> POST /api/.../branch (creates a sibling)
-//   - "Switch here"     -> POST /api/.../switch-to (jumps to this branch)
+// can act on selected nodes:
+//   - "Resolve Differently"  on any closed turn        -> POST /api/.../branch
+//                            (creates a sibling with the original resolutions
+//                            pre-filled; navigates to the world page so
+//                            Reality can edit and commit / cancel)
+//   - "Switch here"          on inactive leaf nodes    -> POST /api/.../switch-to
+//
+// A "provisional" turn is one that was just forked but hasn't been committed
+// (phase === RESOLVE, has a sibling, no children yet). It renders with a
+// dashed border in the graph. Reality can cancel it from the world page.
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { RoleChip } from "@/components/RoleChip";
 import { formatTurnDate, type TimestepUnit } from "@/lib/timestep";
 import { layoutBranchGraph, type TurnNode } from "./graphLayout";
@@ -115,9 +121,15 @@ export function BranchGraphClient({
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ fromTurnId }),
     });
-    if (!r.ok) setError(await r.text());
-    setBusy(false);
-    router.refresh();
+    if (!r.ok) {
+      setError(await r.text());
+      setBusy(false);
+      router.refresh();
+      return;
+    }
+    // After forking, send Reality to the resolve form on the new branch so
+    // they can edit, commit, or cancel the provisional turn.
+    router.push(`/world/${worldId}`);
   }
 
   async function callSwitch(toTurnId: string) {
@@ -185,6 +197,10 @@ export function BranchGraphClient({
           const sel = n.id === selectedId;
           const closed = !!n.closedAt;
           const muted = !n.isActive;
+          // A turn is "provisional" if it was forked but not yet committed:
+          // RESOLVE phase, has at least one sibling, no children of its own.
+          const isProvisional =
+            n.phase === "RESOLVE" && n.siblingCount > 0 && !n.hasChildren;
           return (
             <button
               type="button"
@@ -197,12 +213,14 @@ export function BranchGraphClient({
                 top,
                 width: NODE_WIDTH,
                 height: NODE_HEIGHT,
-                background: n.isCurrent
-                  ? "var(--accent-soft)"
-                  : closed
-                    ? "var(--panel)"
-                    : "transparent",
-                border: `1.5px solid ${
+                background: isProvisional
+                  ? "transparent"
+                  : n.isCurrent
+                    ? "var(--accent-soft)"
+                    : closed
+                      ? "var(--panel)"
+                      : "transparent",
+                border: `1.5px ${isProvisional ? "dashed" : "solid"} ${
                   sel
                     ? "var(--accent)"
                     : n.isCurrent
@@ -228,7 +246,17 @@ export function BranchGraphClient({
                 T{String(n.turnNumber).padStart(2, "0")}
               </span>
               <span style={{ fontSize: 12 }}>{formatTurnDate(n.dateAtTurn, unit)}</span>
-              {n.isCurrent && (
+              {isProvisional ? (
+                <span
+                  style={{
+                    fontSize: 9,
+                    color: "var(--muted)",
+                    letterSpacing: "0.08em",
+                  }}
+                >
+                  DRAFT
+                </span>
+              ) : n.isCurrent ? (
                 <span
                   style={{
                     fontSize: 9,
@@ -238,7 +266,7 @@ export function BranchGraphClient({
                 >
                   NOW
                 </span>
-              )}
+              ) : null}
             </button>
           );
         })}
@@ -257,9 +285,12 @@ export function BranchGraphClient({
             <span className="meta">{formatTurnDate(selected.dateAtTurn, unit)}</span>
             <span style={{ flex: 1 }} />
             {selected.isCurrent ? (
-              <Link href={`/world/${worldId}`} className="gb-btn sm primary">
-                Go to active world →
-              </Link>
+              <span
+                className="gb-pill accent"
+                style={{ borderColor: "var(--accent)" }}
+              >
+                Current branch
+              </span>
             ) : isReality ? (
               <RealityNodeActions
                 node={selected}
@@ -382,16 +413,24 @@ function RealityNodeActions({
   onBranch,
   onSwitch,
 }: {
-  node: { closedAt: string | null; isActive: boolean; hasChildren: boolean };
+  node: {
+    closedAt: string | null;
+    isActive: boolean;
+    hasChildren: boolean;
+  };
   busy: boolean;
   onBranch: () => void;
   onSwitch: () => void;
 }) {
-  // Closed turns can be redone (sibling branch). Inactive turns can be switched
-  // to (jump back). The current turn already has its own button rendered above.
-  const canRedo = !!node.closedAt;
-  const canSwitch = !node.isActive;
-  if (!canRedo && !canSwitch) return null;
+  // "Resolve Differently" is offered on any closed turn (any branch, including
+  // the active one) — Reality can fork at any historical point. "Switch here"
+  // is much narrower: only the LEAF of an inactive line (no children), so it
+  // really means "jump to and continue this branch." If the node has children,
+  // switching is ambiguous; Reality should follow the chain visually and
+  // click the tip.
+  const canBranch = !!node.closedAt;
+  const canSwitch = !node.isActive && !node.hasChildren;
+  if (!canBranch && !canSwitch) return null;
   return (
     <div style={{ display: "flex", gap: 6 }}>
       {canSwitch && (
@@ -400,20 +439,20 @@ function RealityNodeActions({
           className="gb-btn sm"
           onClick={onSwitch}
           disabled={busy}
-          title="Make this the active branch. If it's a leaf, opens a new child to continue play."
+          title="Jump to the tip of this branch and continue play from here."
         >
           ↪ Switch here
         </button>
       )}
-      {canRedo && (
+      {canBranch && (
         <button
           type="button"
           className="gb-btn sm primary"
           onClick={onBranch}
           disabled={busy}
-          title="Create a parallel turn at this point. Reality re-resolves with new outcomes."
+          title="Fork a parallel turn at this point with the original resolutions pre-filled. Edit what you want different, then commit."
         >
-          ⎇ Redo this turn
+          ⎇ Resolve Differently
         </button>
       )}
     </div>

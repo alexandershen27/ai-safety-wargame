@@ -25,6 +25,8 @@ export type LaidOutTurn = TurnNode & {
   isActive: boolean;
   isCurrent: boolean;
   hasChildren: boolean;
+  /** Number of other turns sharing this turn's parent (excluding self). */
+  siblingCount: number;
 };
 
 export type Connector = {
@@ -103,13 +105,17 @@ export function layoutBranchGraph(
   const numLanes = (Math.max(0, ...laneById.values()) + 1) || 1;
   const numCols = Math.max(...turns.map((t) => t.turnNumber)) || 1;
 
-  const nodes: LaidOutTurn[] = turns.map((t) => ({
-    ...t,
-    lane: laneById.get(t.id) ?? 0,
-    isActive: activeChain.has(t.id),
-    isCurrent: t.id === currentTurnId,
-    hasChildren: (childrenByParent.get(t.id)?.length ?? 0) > 0,
-  }));
+  const nodes: LaidOutTurn[] = turns.map((t) => {
+    const allSameParent = childrenByParent.get(t.parentTurnId)?.length ?? 1;
+    return {
+      ...t,
+      lane: laneById.get(t.id) ?? 0,
+      isActive: activeChain.has(t.id),
+      isCurrent: t.id === currentTurnId,
+      hasChildren: (childrenByParent.get(t.id)?.length ?? 0) > 0,
+      siblingCount: Math.max(0, allSameParent - 1),
+    };
+  });
 
   const connectors: Connector[] = [];
   for (const t of turns) {
