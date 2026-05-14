@@ -44,6 +44,13 @@ async function bootstrap() {
   // then we layer on the additions.
   const additiveColumns: { table: string; column: string; ddl: string }[] = [
     { table: "worlds", column: "current_turn_id", ddl: "ALTER TABLE worlds ADD COLUMN current_turn_id TEXT" },
+    {
+      table: "turns",
+      column: "created_at",
+      // libSQL accepts DEFAULT CURRENT_TIMESTAMP for added columns; existing
+      // rows backfill with the time the ALTER runs.
+      ddl: "ALTER TABLE turns ADD COLUMN created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP",
+    },
   ];
 
   const stmts = [
@@ -97,7 +104,8 @@ async function bootstrap() {
       phase_ends_at TEXT,
       date_at_turn TEXT NOT NULL,
       world_state_snapshot TEXT NOT NULL DEFAULT '{}',
-      closed_at TEXT
+      closed_at TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )`,
     `CREATE INDEX IF NOT EXISTS turns_world_idx ON turns(world_id, turn_number)`,
     `CREATE TABLE IF NOT EXISTS actions (

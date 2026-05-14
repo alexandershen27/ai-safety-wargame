@@ -88,6 +88,7 @@ export default async function TimelinePage({
             phase: t.phase,
             closedAt: t.closedAt,
             parentTurnId: t.parentTurnId,
+            createdAt: t.createdAt,
           }))}
           roles={roles.map((r) => ({ id: r.id, name: r.name, color: r.color }))}
           actions={actions.map((a) => ({

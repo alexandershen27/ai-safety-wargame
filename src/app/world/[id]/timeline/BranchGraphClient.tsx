@@ -26,6 +26,8 @@ type Action = {
   resolvedText: string | null;
   resolvedOutcome: string | null;
 };
+// TurnNode is re-exported from graphLayout but includes createdAt now —
+// callers pass it through unmodified.
 
 // Normalize legacy outcome ids ("success-high", "fail-hard") to the new
 // success/partial/fail triplet for display.
@@ -57,7 +59,6 @@ const NODE_WIDTH = 96;
 const NODE_HEIGHT = 56;
 const PAD_X = 16;
 const PAD_Y = 16;
-const EDGE_GAP = 6;
 
 function nodeCenterX(col: number) {
   // turn numbers are 1-indexed
@@ -153,20 +154,16 @@ export function BranchGraphClient({
             const fromY = nodeCenterY(c.fromLane);
             const toX = nodeCenterX(c.toCol) - NODE_WIDTH / 2; // left edge of child
             const toY = nodeCenterY(c.toLane);
-            const dx = toX - fromX;
-            const dy = toY - fromY;
-            // Path: horizontal stub from parent -> diagonal -> horizontal stub
-            // to child. If same lane, just one horizontal line.
-            let d: string;
-            if (dy === 0) {
-              d = `M ${fromX} ${fromY} L ${toX} ${toY}`;
-            } else {
-              const diagWidth = Math.min(Math.abs(dy), dx - EDGE_GAP * 2);
-              const bend1X = fromX + EDGE_GAP;
-              const bend2X = toX - EDGE_GAP;
-              const startDiagX = bend2X - diagWidth;
-              d = `M ${fromX} ${fromY} L ${bend1X} ${fromY} L ${startDiagX} ${fromY} L ${bend2X} ${toY} L ${toX} ${toY}`;
-            }
+            // Simple 3-segment path: horizontal stub from parent, single
+            // diagonal across the gap, horizontal stub into child. Same lane
+            // collapses to a straight line.
+            const stub = 14;
+            const startStubX = fromX + stub;
+            const endStubX = toX - stub;
+            const d =
+              fromY === toY
+                ? `M ${fromX} ${fromY} L ${toX} ${toY}`
+                : `M ${fromX} ${fromY} L ${startStubX} ${fromY} L ${endStubX} ${toY} L ${toX} ${toY}`;
             return (
               <path
                 key={c.fromId + c.toId}
@@ -174,6 +171,8 @@ export function BranchGraphClient({
                 fill="none"
                 stroke={c.isActive ? "var(--accent)" : "var(--border-2)"}
                 strokeWidth={c.isActive ? 2 : 1.5}
+                strokeLinejoin="miter"
+                strokeLinecap="butt"
               />
             );
           })}
@@ -291,7 +290,7 @@ export function BranchGraphClient({
                   a.submittedAt !== null && submittedText.length === 0;
                 const status = isSkipped
                   ? "skipped"
-                  : a.resolvedText
+                  : a.resolvedOutcome
                     ? "resolved"
                     : a.submittedText
                       ? "submitted"

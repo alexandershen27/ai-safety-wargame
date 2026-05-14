@@ -1,10 +1,14 @@
 // Pure-function layout for the branch graph. Given a turn list + the active
 // branch tip, returns where each turn sits in the (column, lane) grid plus
-// the connector line geometry parent→child.
+// connector geometry parent→child.
 //
-// Active branch always sits on lane 0. Inactive branches get assigned lanes
-// in DFS order. This is generic over arbitrary depth — branches of branches
-// are handled by recursive lane assignment.
+// Lane assignment is STRUCTURAL, not active-branch-relative. The first child
+// of any node (by createdAt, then id) inherits its parent's lane; later
+// siblings get fresh lanes. This means the original chain stays on lane 0
+// forever and forks always grow downward — clicking around doesn't reshuffle
+// the picture.
+//
+// `isActive` is reported on each node/connector for visual emphasis only.
 
 export type TurnNode = {
   id: string;
@@ -13,6 +17,7 @@ export type TurnNode = {
   phase: string;
   closedAt: string | null;
   parentTurnId: string | null;
+  createdAt: string;
 };
 
 export type LaidOutTurn = TurnNode & {
@@ -56,57 +61,43 @@ export function layoutBranchGraph(
     arr.push(t);
     childrenByParent.set(key, arr);
   }
-  // Stable child order: by turnNumber, then by id (so layout is deterministic).
+  // Stable sibling order: createdAt ascending, id as tiebreaker. The first
+  // child by this ordering keeps its parent's lane; siblings created later
+  // fork into new lanes. This is independent of what the user is doing now
+  // so the graph doesn't shift around when they switch branches.
   for (const arr of childrenByParent.values()) {
-    arr.sort((a, b) => a.turnNumber - b.turnNumber || a.id.localeCompare(b.id));
+    arr.sort((a, b) => {
+      const cmp = a.createdAt.localeCompare(b.createdAt);
+      if (cmp !== 0) return cmp;
+      return a.id.localeCompare(b.id);
+    });
   }
 
-  // Walk from currentTurnId up to root to build the active-chain set.
+  const laneById = new Map<string, number>();
+  let nextLane = 0;
+
+  function assign(node: TurnNode, lane: number) {
+    laneById.set(node.id, lane);
+    const children = childrenByParent.get(node.id) ?? [];
+    children.forEach((child, idx) => {
+      // First-born sibling inherits the lane; the rest grow new branches.
+      if (idx === 0) assign(child, lane);
+      else assign(child, nextLane++);
+    });
+  }
+
+  const roots = childrenByParent.get(null) ?? [];
+  for (const root of roots) {
+    assign(root, nextLane++);
+  }
+
+  // Active chain: walk parents up from currentTurnId. Visual flag only —
+  // lanes are NOT swapped to put the active branch on top.
   const activeChain = new Set<string>();
   let cur: string | null = currentTurnId;
   while (cur) {
     activeChain.add(cur);
     cur = byId.get(cur)?.parentTurnId ?? null;
-  }
-
-  // DFS from each root, assigning lanes. The active child of a node keeps the
-  // parent's lane; siblings get fresh lanes.
-  const laneById = new Map<string, number>();
-  let nextLane = 0;
-  function takeLane(): number {
-    return nextLane++;
-  }
-
-  function assign(node: TurnNode, lane: number) {
-    laneById.set(node.id, lane);
-    const children = childrenByParent.get(node.id) ?? [];
-    // Find the active child, if any — it inherits the parent's lane.
-    const activeChild = children.find((c) => activeChain.has(c.id));
-    for (const child of children) {
-      if (child.id === activeChild?.id) {
-        assign(child, lane);
-      } else {
-        assign(child, takeLane());
-      }
-    }
-  }
-
-  const roots = childrenByParent.get(null) ?? [];
-  for (const root of roots) {
-    const lane = activeChain.has(root.id) ? takeLane() : takeLane();
-    assign(root, lane);
-  }
-  // Ensure the active lane is 0 by remapping: find the lane the active root
-  // ended up on and swap.
-  if (currentTurnId) {
-    const activeRoot = roots.find((r) => activeChain.has(r.id)) ?? roots[0];
-    const activeLane = laneById.get(activeRoot.id) ?? 0;
-    if (activeLane !== 0) {
-      for (const [id, lane] of laneById) {
-        if (lane === 0) laneById.set(id, activeLane);
-        else if (lane === activeLane) laneById.set(id, 0);
-      }
-    }
   }
 
   const numLanes = (Math.max(0, ...laneById.values()) + 1) || 1;

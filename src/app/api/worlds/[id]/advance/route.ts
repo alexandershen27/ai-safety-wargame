@@ -71,8 +71,11 @@ export async function POST(
         ),
       )
       .all();
+    // Outcome is what makes an action "resolved" — extended narration is
+    // optional. Skipped actions (empty submittedText) don't need either.
     const needsResolve = submittedActions.filter(
-      (a) => (a.submittedText ?? "").trim().length > 0 && !a.resolvedText,
+      (a) =>
+        (a.submittedText ?? "").trim().length > 0 && !a.resolvedOutcome,
     );
     if (needsResolve.length > 0) {
       return new NextResponse(

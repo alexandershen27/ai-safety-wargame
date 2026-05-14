@@ -33,6 +33,7 @@ export type WorldView = {
     phase: string;
     closedAt: string | null;
     parentTurnId: string | null;
+    createdAt: string;
   }[];
   isReality: boolean;
   myRoleIds: string[];
@@ -125,10 +126,16 @@ export async function getWorldView(
       ),
     );
 
-  // Hidden if: in DISCUSSION, not Reality, AND (I have no seats OR haven't
-  // submitted all of them yet). Spectators (no seats) get the gate forever
-  // in DISCUSSION — they see nothing — which keeps the rule consistent.
-  const actionsHidden = inDiscussion && !isReality && !iHaveSubmittedAll;
+  // Visibility rule:
+  //   - Seated players (incl. Reality with seats) must submit every action
+  //     they owe before they can see/vote on anyone else's. No peeking even
+  //     for the GM if they're also playing roles.
+  //   - Unseated Reality sees everything (they need it to advance phases).
+  //   - Unseated non-Reality (spectators) see nothing during DISCUSSION.
+  const hasSeats = myRoleIds.length > 0;
+  const actionsHidden =
+    inDiscussion &&
+    (hasSeats ? !iHaveSubmittedAll : !isReality);
   const actions = actionsHidden
     ? rawActions.filter((a) => a.authorPlayerId === currentPlayerId)
     : rawActions;
@@ -202,6 +209,7 @@ export async function getWorldView(
       phase: t.phase,
       closedAt: t.closedAt,
       parentTurnId: t.parentTurnId,
+      createdAt: t.createdAt,
     })),
     isReality,
     myRoleIds,
