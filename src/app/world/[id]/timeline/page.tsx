@@ -87,16 +87,34 @@ export default async function TimelinePage({
                   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                     {turnActions.map((a) => {
                       const role = roleById.get(a.roleId);
-                      const text = a.resolvedText ?? a.submittedText ?? a.draftText;
-                      const status = a.resolvedText
-                        ? "resolved"
-                        : a.submittedText
-                          ? "submitted"
-                          : "draft";
+                      const submittedText = (a.submittedText ?? "").trim();
+                      const isSkipped =
+                        a.submittedAt !== null && submittedText.length === 0;
+                      const text = isSkipped
+                        ? "(no action this turn)"
+                        : (a.resolvedText ?? a.submittedText ?? a.draftText);
+                      const status = isSkipped
+                        ? "skipped"
+                        : a.resolvedText
+                          ? "resolved"
+                          : a.submittedText
+                            ? "submitted"
+                            : "draft";
+                      const normalizedOutcome = a.resolvedOutcome
+                        ? a.resolvedOutcome.startsWith("success")
+                          ? "success"
+                          : a.resolvedOutcome.startsWith("fail")
+                            ? "fail"
+                            : "partial"
+                        : null;
                       return (
                         <div
                           key={a.id}
-                          style={{ borderLeft: "2px solid var(--border)", paddingLeft: 10 }}
+                          style={{
+                            borderLeft: "2px solid var(--border)",
+                            paddingLeft: 10,
+                            opacity: isSkipped ? 0.6 : 1,
+                          }}
                         >
                           <div
                             style={{
@@ -112,10 +130,15 @@ export default async function TimelinePage({
                               style={{ color: "var(--muted)", fontSize: 10 }}
                             >
                               {status}
-                              {a.resolvedOutcome ? ` · ${a.resolvedOutcome}` : ""}
+                              {normalizedOutcome ? ` · ${normalizedOutcome}` : ""}
                             </span>
                           </div>
-                          <p className="gb-p">{text || "(empty)"}</p>
+                          <p
+                            className="gb-p"
+                            style={isSkipped ? { color: "var(--muted)" } : undefined}
+                          >
+                            {text || "(empty)"}
+                          </p>
                         </div>
                       );
                     })}

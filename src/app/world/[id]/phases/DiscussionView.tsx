@@ -1,16 +1,14 @@
 "use client";
-// DISCUSSION phase view. Combined drafting + voting:
+// DISCUSSION phase — combined drafting + voting.
 //
-//   - Above the fold: one ActionDraft per role you're seated at. Editable until
-//     you submit; locked afterward.
-//   - Below the fold: a VoteList of every action that's been submitted so far,
-//     yours included. This only renders once you've personally submitted every
-//     action you owe (the "strict gate"). Spectators see the gate forever.
-//     Reality always sees it.
+// Drafts are shown ONLY for roles you haven't submitted yet. Once you've
+// submitted (or skipped) an action for a role, that draft card disappears —
+// your action shows up below in the unified action list with a "YOUR ACTION"
+// badge.
 //
-// Once your gate lifts, you can vote on actions as they come in. The server
-// drives transitions: Reality's advance button skips VOTE entirely when
-// everyone has naturally submitted.
+// The action list below is the same VoteList component the (legacy) VOTE
+// phase used. It appears as soon as your gate lifts (you've submitted every
+// action you owe). Reality always sees it.
 import { useEffect, useState } from "react";
 import { RoleChip } from "@/components/RoleChip";
 import type { WorldView } from "@/lib/world/state";
@@ -27,6 +25,13 @@ export function DiscussionView({
 }) {
   const turn = view.currentTurn!;
   const myRoles = view.roles.filter((r) => view.myRoleIds.includes(r.id));
+  // Only render a draft card for roles where this player hasn't submitted yet.
+  const pendingRoles = myRoles.filter((role) => {
+    const myAction = view.actions.find(
+      (a) => a.roleId === role.id && a.authorPlayerId === you.id,
+    );
+    return !myAction?.submittedAt;
+  });
   const canSeeOthers = !view.actionsHidden;
 
   return (
@@ -48,8 +53,8 @@ export function DiscussionView({
         </div>
       )}
 
-      {/* Your draft cards. */}
-      {myRoles.map((role) => {
+      {/* Pending draft cards only — submitted ones live in the list below. */}
+      {pendingRoles.map((role) => {
         const myAction = view.actions.find(
           (a) => a.roleId === role.id && a.authorPlayerId === you.id,
         );
@@ -64,16 +69,16 @@ export function DiscussionView({
         );
       })}
 
-      {/* Vote section. Gate flips the moment you submit your last action. */}
+      {/* Unified action list. Shows everyone (incl. you) once your gate lifts. */}
       <div>
         <div className="gb-h" style={{ marginBottom: 8 }}>
-          <span className="ttl">Submitted actions</span>
+          <span className="ttl">Actions</span>
           <span className="meta">
             {canSeeOthers
-              ? `${view.submitProgress.submitted} of ${view.submitProgress.expected} seats submitted`
+              ? `${view.submitProgress.submitted} of ${view.submitProgress.expected} submitted`
               : myRoles.length === 0
                 ? "spectators wait for resolution"
-                : "submit all your actions to see and vote on others'"}
+                : "submit (or skip) all your actions to see and vote on others'"}
           </span>
         </div>
         {canSeeOthers ? (
@@ -112,8 +117,7 @@ function ActionDraft({
   const [actionId, setActionId] = useState<string | undefined>(existing?.id);
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [optimisticSubmitted, setOptimisticSubmitted] = useState(false);
-  const submitted = !!existing?.submittedAt || optimisticSubmitted;
+  const [skipping, setSkipping] = useState(false);
 
   useEffect(() => {
     if (existing && existing.id !== actionId) {
@@ -122,9 +126,8 @@ function ActionDraft({
     }
   }, [existing, actionId]);
 
-  // Debounced auto-save of drafts while not submitted.
+  // Debounced auto-save of drafts.
   useEffect(() => {
-    if (submitted) return;
     const t = setTimeout(async () => {
       const res = await fetch("/api/actions", {
         method: "POST",
@@ -151,7 +154,6 @@ function ActionDraft({
   async function submit() {
     if (!text.trim()) return;
     setSubmitting(true);
-    setOptimisticSubmitted(true);
     let id = actionId;
     if (!id) {
       const r = await fetch("/api/actions", {
@@ -169,13 +171,28 @@ function ActionDraft({
       id = j.actionId;
       setActionId(id);
     }
-    const r = await fetch("/api/actions", {
+    await fetch("/api/actions", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ op: "submit", actionId: id, text }),
     });
-    if (!r.ok) setOptimisticSubmitted(false);
     setSubmitting(false);
+  }
+
+  async function skip() {
+    setSkipping(true);
+    await fetch("/api/actions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        op: "skip",
+        worldId,
+        turnId,
+        roleId: role.id,
+        actionId,
+      }),
+    });
+    setSkipping(false);
   }
 
   return (
@@ -190,7 +207,7 @@ function ActionDraft({
       >
         <RoleChip role={role} />
         <span className="gb-mono" style={{ color: "var(--muted)", fontSize: 10 }}>
-          {submitted ? "submitted · locked" : savedAt ? "saved" : "drafting"}
+          {savedAt ? "saved" : "drafting"}
         </span>
       </div>
       <textarea
@@ -198,15 +215,29 @@ function ActionDraft({
         placeholder="Phrase your action as a fact: 'We do X because Y.'"
         value={text}
         onChange={(e) => setText(e.target.value)}
-        disabled={submitted}
       />
-      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
+      <div
+        style={{
+          display: "flex",
+          gap: 8,
+          justifyContent: "flex-end",
+          marginTop: 8,
+        }}
+      >
+        <button
+          className="gb-btn sm ghost"
+          onClick={skip}
+          disabled={submitting || skipping}
+          title="Submit no action for this role this turn."
+        >
+          {skipping ? "Skipping…" : "Skip"}
+        </button>
         <button
           className="gb-btn primary sm"
           onClick={submit}
-          disabled={submitting || submitted || !text.trim()}
+          disabled={submitting || skipping || !text.trim()}
         >
-          {submitted ? "Submitted" : submitting ? "Submitting…" : "Submit action"}
+          {submitting ? "Submitting…" : "Submit action"}
         </button>
       </div>
     </div>

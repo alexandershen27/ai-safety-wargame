@@ -1,15 +1,14 @@
 "use client";
-// Top-level client shell. Polls /api/worlds/:id/state every 2s and routes by phase.
+// Top-level client shell. Polls /api/worlds/:id/state every 2s and routes by
+// phase. The state machine is DISCUSSION → RESOLVE → CLOSED; legacy VOTE
+// turns render as DISCUSSION.
 //
-// The advance button is context-aware:
-//   DISCUSSION + all submitted: "End discussion → Resolve"
-//                               (server skips VOTE entirely)
-//   DISCUSSION + stragglers:    "Force vote (3 still drafting)"
-//                               (warning label; advances to VOTE)
-//   VOTE + everyone voted:      "End voting → Resolve"
-//   VOTE + voters unfinished:   "Resolve anyway (2 still voting)"
-//   RESOLVE + work pending:     "Resolve N more to close" — disabled
-//   RESOLVE + done:             "Close turn → next"
+// Reality's advance button is context-aware:
+//   DISCUSSION + all submitted, all voted   →  "End discussion → Resolve"
+//   DISCUSSION + all submitted, votes open  →  "Resolve (3 still voting)" (warn)
+//   DISCUSSION + stragglers                 →  "Resolve anyway (2 still drafting)" (warn)
+//   RESOLVE + work pending                  →  "Resolve N more to close" (disabled)
+//   RESOLVE + done                          →  "Close turn → next"
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Topbar } from "@/components/Topbar";
@@ -18,7 +17,6 @@ import type { WorldView } from "@/lib/world/state";
 import type { Phase } from "@/lib/phases";
 import { formatDate, type TimestepUnit } from "@/lib/timestep";
 import { DiscussionView } from "./phases/DiscussionView";
-import { VoteView } from "./phases/VoteView";
 import { ResolveView } from "./phases/ResolveView";
 
 const POLL_MS = 2000;
@@ -51,6 +49,9 @@ export function WorldShell({
 
   const turn = view.currentTurn;
   const phase = (turn?.phase as Phase) ?? "DISCUSSION";
+  // Legacy VOTE renders identically to DISCUSSION (combined drafting+voting).
+  const showResolveView = phase === "RESOLVE";
+  const showClosedView = phase === "CLOSED";
 
   return (
     <>
@@ -78,15 +79,14 @@ export function WorldShell({
       </div>
 
       <main style={{ flex: 1, overflowY: "auto", padding: 24 }}>
-        {phase === "DISCUSSION" && (
-          <DiscussionView worldId={worldId} view={view} you={you} />
-        )}
-        {phase === "VOTE" && <VoteView worldId={worldId} view={view} you={you} />}
-        {phase === "RESOLVE" && <ResolveView view={view} />}
-        {phase === "CLOSED" && (
+        {showClosedView ? (
           <div className="gb-card" style={{ maxWidth: 600, margin: "0 auto" }}>
             <p className="gb-p">Turn closed. Waiting for the next turn to open.</p>
           </div>
+        ) : showResolveView ? (
+          <ResolveView view={view} />
+        ) : (
+          <DiscussionView worldId={worldId} view={view} you={you} />
         )}
       </main>
     </>
@@ -102,36 +102,31 @@ type AdvanceState = {
 function computeAdvanceState(view: WorldView): AdvanceState | null {
   const phase = (view.currentTurn?.phase as Phase) ?? "DISCUSSION";
   const { submitProgress, voteProgress } = view;
-  const submittedActions = view.actions.filter((a) => a.submittedText);
 
-  if (phase === "DISCUSSION") {
-    const allSubmitted =
-      submitProgress.expected === 0 ||
-      submitProgress.submitted >= submitProgress.expected;
-    if (allSubmitted) {
-      return { label: "End discussion → Resolve", warn: false, blocked: false };
+  if (phase === "DISCUSSION" || phase === "VOTE") {
+    const stragglers = submitProgress.expected - submitProgress.submitted;
+    if (stragglers > 0) {
+      return {
+        label: `Resolve anyway (${stragglers} still drafting)`,
+        warn: true,
+        blocked: false,
+      };
     }
-    const pending = submitProgress.expected - submitProgress.submitted;
-    return {
-      label: `Force vote (${pending} still drafting)`,
-      warn: true,
-      blocked: false,
-    };
-  }
-
-  if (phase === "VOTE") {
     const pendingVoters = voteProgress.total - voteProgress.finished;
-    if (pendingVoters <= 0) {
-      return { label: "End voting → Resolve", warn: false, blocked: false };
+    if (pendingVoters > 0) {
+      return {
+        label: `Resolve (${pendingVoters} still voting)`,
+        warn: true,
+        blocked: false,
+      };
     }
-    return {
-      label: `Resolve anyway (${pendingVoters} still voting)`,
-      warn: true,
-      blocked: false,
-    };
+    return { label: "End discussion → Resolve", warn: false, blocked: false };
   }
 
   if (phase === "RESOLVE") {
+    const submittedActions = view.actions.filter(
+      (a) => a.submittedAt && (a.submittedText ?? "").trim().length > 0,
+    );
     const unresolved = submittedActions.filter((a) => !a.resolvedText).length;
     if (unresolved > 0) {
       return {
@@ -179,10 +174,7 @@ function PhaseAdvanceButton({
         disabled={busy || state.blocked}
         style={
           state.warn
-            ? {
-                borderColor: "var(--warn)",
-                color: "var(--warn)",
-              }
+            ? { borderColor: "var(--warn)", color: "var(--warn)" }
             : undefined
         }
       >
