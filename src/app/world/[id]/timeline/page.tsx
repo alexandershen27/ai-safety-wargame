@@ -74,7 +74,7 @@ export default async function TimelinePage({
           style={{ color: "var(--muted)", marginBottom: 20, fontSize: 12 }}
         >
           {isReality
-            ? "Click any turn to inspect. Use “Redo this turn” to fork a parallel resolution, or “Switch here” to jump to a different branch."
+            ? "Click any turn to inspect. Use “Resolve Differently” to fork a parallel resolution on any closed turn, or “Switch here” to jump to the tip of an inactive branch."
             : "Click any turn to inspect its actions and resolutions."}
         </p>
         <BranchGraphClient

@@ -9,11 +9,13 @@
 // In VOTE / RESOLVE, the gate is lifted — everyone sees all submitted actions.
 //
 // Two progress numbers are computed for Reality's advance button:
-//   submitProgress: how many seats have submitted vs how many seats exist.
-//                   Drives "End discussion → Resolve" vs "Force vote".
+//   submitProgress: how many seated ROLES have a submission vs total seated
+//                   roles. Co-seats share a role's submission (first-submit-
+//                   wins). Drives "End discussion → Resolve" vs the "(N still
+//                   drafting)" warning on Reality's advance button.
 //   voteProgress:   how many seated players have voted on EVERY submitted
 //                   action vs how many seated players exist total. Drives
-//                   the "(2 still voting)" warning.
+//                   the "(N still voting)" warning.
 import "server-only";
 import { db, schema, ensureSchema } from "@/lib/db";
 import { asc, eq, inArray } from "drizzle-orm";
