@@ -5,7 +5,7 @@
 // Use the "Leave" button on a specific seat to drop just that one.
 // Optimistic state on click — local roles list updates immediately, then
 // reconciles when the next refresh comes in.
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { RoleChip } from "@/components/RoleChip";
 
@@ -33,6 +33,15 @@ export function LobbyClient({
   const [roles, setRoles] = useState(initialRoles);
   const [, startTransition] = useTransition();
   const [busyRoleId, setBusyRoleId] = useState<string | null>(null);
+  // Timestamp of the most recent local mutation. The "accept the new server
+  // snapshot" effect below ignores any router.refresh() result whose payload
+  // was minted BEFORE the user clicked — that's how the take/leave flicker
+  // happens: a stale snapshot arrives mid-POST and overwrites the optimistic
+  // state. We approximate "was minted before the click" by tracking that the
+  // last server snapshot we accepted is what we're still showing — if local
+  // diverged (optimistic), we wait for a snapshot that actually moved past it.
+  const lastServerRolesRef = useRef(initialRoles);
+  const lastMutationAtRef = useRef(0);
 
   // 2s poll for lobby updates. Server-render gives us fresh occupants on each tick.
   useEffect(() => {
@@ -42,11 +51,29 @@ export function LobbyClient({
     return () => clearInterval(t);
   }, [router]);
 
-  // Sync when initialRoles changes (router.refresh re-renders the server component).
-  useEffect(() => setRoles(initialRoles), [initialRoles]);
+  // Reconcile when the server snapshot changes. We only adopt the new server
+  // state if either (a) local matches what the server last told us (no
+  // optimistic divergence to preserve), OR (b) it's been >800ms since the
+  // last mutation — long enough that the POST should have flushed and the
+  // incoming snapshot likely reflects it.
+  useEffect(() => {
+    const localMatchesLastServer =
+      JSON.stringify(roles) === JSON.stringify(lastServerRolesRef.current);
+    const enoughTimePassed =
+      Date.now() - lastMutationAtRef.current > 800;
+    if (localMatchesLastServer || enoughTimePassed) {
+      setRoles(initialRoles);
+    }
+    lastServerRolesRef.current = initialRoles;
+    // We intentionally exclude `roles` from deps — including it would
+    // re-fire on every optimistic setRoles and immediately compare against
+    // itself, defeating the purpose.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialRoles]);
 
   async function take(roleId: string) {
     setBusyRoleId(roleId);
+    lastMutationAtRef.current = Date.now();
     // Optimistic: add self to the occupant list locally.
     setRoles((rs) =>
       rs.map((r) =>
@@ -76,6 +103,7 @@ export function LobbyClient({
 
   async function leave(roleId: string) {
     setBusyRoleId(roleId);
+    lastMutationAtRef.current = Date.now();
     // Optimistic remove.
     setRoles((rs) =>
       rs.map((r) =>

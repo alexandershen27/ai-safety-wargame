@@ -16,7 +16,12 @@ import { Ribbon } from "@/components/Ribbon";
 import type { WorldView } from "@/lib/world/state";
 import type { Phase } from "@/lib/phases";
 import { formatDate, type TimestepUnit } from "@/lib/timestep";
-import { REFRESH_EVENT, requestRefresh } from "@/lib/refresh";
+import {
+  MUTATION_START_EVENT,
+  REFRESH_EVENT,
+  markMutationStart,
+  requestRefresh,
+} from "@/lib/refresh";
 import { DiscussionView } from "./phases/DiscussionView";
 import { ResolveView } from "./phases/ResolveView";
 import { RoleMenu } from "./RoleMenu";
@@ -33,20 +38,35 @@ export function WorldShell({
   initial: WorldView;
 }) {
   const [view, setView] = useState<WorldView>(initial);
-  // Single-flight guard. If a fetch is already in flight, don't queue another —
-  // the in-flight one will return the freshest state anyway.
-  const inFlight = useRef(false);
+  // AbortController for the active poll. We abort on mutation-start so a
+  // stale in-flight response can't overwrite our optimistic / post-mutation
+  // state.
+  const abortRef = useRef<AbortController | null>(null);
+  // Timestamp of the last mutation. Backstop in case an aborted response
+  // still leaks through (e.g., fetch already past the abort check) — we
+  // discard any response whose request started before this timestamp.
+  const lastMutationRef = useRef(0);
 
   const fetchState = useCallback(async () => {
-    if (inFlight.current) return;
-    inFlight.current = true;
+    // Cancel any prior poll. Newest request wins; abandoned ones throw
+    // AbortError and exit the try below.
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    const startedAt = Date.now();
     try {
-      const res = await fetch(`/api/worlds/${worldId}/state`, { cache: "no-store" });
-      if (res.ok) setView(await res.json());
+      const res = await fetch(`/api/worlds/${worldId}/state`, {
+        cache: "no-store",
+        signal: ctrl.signal,
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      // Drop the response if a mutation started while we were in-flight —
+      // its data is older than the user's action.
+      if (startedAt < lastMutationRef.current) return;
+      setView(data);
     } catch {
-      // Network blip — next poll will recover.
-    } finally {
-      inFlight.current = false;
+      // Aborted, or network blip — next poll / refresh will recover.
     }
   }, [worldId]);
 
@@ -56,12 +76,25 @@ export function WorldShell({
     return () => clearInterval(t);
   }, [fetchState]);
 
-  // Fast refresh after my own mutations. Any child component can fire
-  // requestRefresh() and we'll refetch immediately, bypassing the 2s gap.
+  // Mutation lifecycle:
+  //   start  → bump the timestamp and abort in-flight polls so they can't
+  //            commit pre-mutation data after the user has already moved on.
+  //   end    → run a fresh fetch right away (don't wait for the 2s tick).
   useEffect(() => {
-    const handler = () => fetchState();
-    window.addEventListener(REFRESH_EVENT, handler);
-    return () => window.removeEventListener(REFRESH_EVENT, handler);
+    const onStart = () => {
+      lastMutationRef.current = Date.now();
+      abortRef.current?.abort();
+    };
+    const onRefresh = () => {
+      lastMutationRef.current = Date.now();
+      fetchState();
+    };
+    window.addEventListener(MUTATION_START_EVENT, onStart);
+    window.addEventListener(REFRESH_EVENT, onRefresh);
+    return () => {
+      window.removeEventListener(MUTATION_START_EVENT, onStart);
+      window.removeEventListener(REFRESH_EVENT, onRefresh);
+    };
   }, [fetchState]);
 
   const turn = view.currentTurn;
@@ -208,6 +241,9 @@ function CancelBranchButton({
     );
     if (!ok) return;
     setBusy(true);
+    // markMutationStart fires inside mutate() so the in-flight poll gets
+    // aborted before its stale snapshot can flicker back over our UI.
+    markMutationStart();
     const res = await fetch(`/api/worlds/${worldId}/cancel-branch`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -271,6 +307,7 @@ function PhaseAdvanceButton({
     }
     setError(null);
     setBusy(true);
+    markMutationStart();
     const res = await fetch(`/api/worlds/${worldId}/advance`, { method: "POST" });
     if (!res.ok) setError(await res.text());
     else requestRefresh();

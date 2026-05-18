@@ -12,7 +12,7 @@
 import { useEffect, useState } from "react";
 import { RoleChip } from "@/components/RoleChip";
 import type { WorldView } from "@/lib/world/state";
-import { requestRefresh } from "@/lib/refresh";
+import { markMutationStart, requestRefresh } from "@/lib/refresh";
 import { VoteList } from "./VoteList";
 
 export function DiscussionView({
@@ -150,6 +150,10 @@ function ActionDraft({
   // Single button does double duty: submit when there's text, skip when empty.
   async function commit() {
     setSubmitting(true);
+    // Mark BEFORE the first POST so the WorldShell's in-flight poll gets
+    // aborted. Otherwise a stale snapshot showing "not submitted" can flicker
+    // back over the post-submit UI for ~half a second.
+    markMutationStart();
     const trimmed = text.trim();
     if (trimmed.length === 0) {
       // Skip: server creates the row if needed, marks submittedAt with empty text.

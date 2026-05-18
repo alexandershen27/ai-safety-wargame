@@ -11,7 +11,7 @@
 //     We don't try to clean up drafts you already wrote — they remain in the
 //     DB but you can no longer edit them (seat check on the draft API blocks).
 import { useState } from "react";
-import { requestRefresh } from "@/lib/refresh";
+import { mutate } from "@/lib/refresh";
 
 type Role = { id: string; name: string; color: string };
 
@@ -34,12 +34,17 @@ export function RoleMenu({
   async function toggle(roleId: string, currentlyMine: boolean) {
     setBusyRoleId(roleId);
     const method = currentlyMine ? "DELETE" : "POST";
-    const res = await fetch("/api/seats", {
-      method,
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ worldId, roleId }),
-    });
-    if (res.ok) requestRefresh();
+    // mutate() marks the mutation start BEFORE the POST so the WorldShell
+    // aborts any in-flight stale poll, then fires the refresh event after.
+    // Without this pre-mark, a poll that returned mid-request would briefly
+    // overwrite the seat back to its old value.
+    await mutate(() =>
+      fetch("/api/seats", {
+        method,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ worldId, roleId }),
+      }),
+    );
     setBusyRoleId(null);
   }
 

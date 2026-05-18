@@ -8,6 +8,7 @@
 import { useEffect, useState } from "react";
 import { RoleChip } from "@/components/RoleChip";
 import type { WorldView } from "@/lib/world/state";
+import { markMutationStart, requestRefresh } from "@/lib/refresh";
 
 export function VoteList({
   view,
@@ -146,6 +147,9 @@ function ActionVoteCard({
   useEffect(() => {
     if (disabled || !voterRoleId || !touched) return;
     const t = setTimeout(async () => {
+      // Mark so the WorldShell aborts any in-flight poll that would echo
+      // back the pre-vote state and briefly reset the voteProgress counter.
+      markMutationStart();
       const res = await fetch("/api/votes", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -157,7 +161,10 @@ function ActionVoteCard({
           objection: objection || null,
         }),
       });
-      if (res.ok) setSavedAt(Date.now());
+      if (res.ok) {
+        setSavedAt(Date.now());
+        requestRefresh();
+      }
     }, 400);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps

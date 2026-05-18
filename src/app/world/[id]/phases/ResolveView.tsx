@@ -14,7 +14,7 @@
 import { useEffect, useRef, useState } from "react";
 import { RoleChip } from "@/components/RoleChip";
 import type { WorldView } from "@/lib/world/state";
-import { requestRefresh } from "@/lib/refresh";
+import { markMutationStart, requestRefresh } from "@/lib/refresh";
 
 const OUTCOMES: { id: string; label: string; symbol: string; color: string }[] = [
   { id: "success", label: "Success", symbol: "✓", color: "var(--good)" },
@@ -167,6 +167,9 @@ function ResolveCard({
     if (!outcome) return; // outcome is required
     setError(null);
     setBusy(true);
+    // Abort the in-flight poll before the save so it can't flicker the form
+    // back to the pre-save value when its response arrives.
+    markMutationStart();
     const r = await fetch("/api/actions", {
       method: "POST",
       headers: { "content-type": "application/json" },
