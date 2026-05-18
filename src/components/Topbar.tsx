@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { PHASE_LABEL, type Phase } from "@/lib/phases";
+import { AccountChip } from "./AccountChip";
 
 export function Topbar({
   worldName,
@@ -7,12 +8,15 @@ export function Topbar({
   phase,
   date,
   you,
+  account,
 }: {
   worldName: string;
   turnNumber?: number;
   phase?: Phase;
   date?: string;
   you?: string;
+  /** Account binding for the current cookie player. Null = anonymous. */
+  account?: { email: string } | null;
 }) {
   return (
     <div className="gb-topbar">
@@ -31,12 +35,9 @@ export function Topbar({
           {date}
         </span>
       )}
-      {you && (
-        <div className="gb-user" style={{ marginLeft: "auto" }}>
-          <div className="gb-avatar">{you[0]?.toUpperCase() ?? "?"}</div>
-          {you}
-        </div>
-      )}
+      <div style={{ marginLeft: "auto" }}>
+        <AccountChip you={you} account={account ?? null} />
+      </div>
     </div>
   );
 }

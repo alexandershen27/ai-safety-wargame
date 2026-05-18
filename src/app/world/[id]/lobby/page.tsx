@@ -2,6 +2,7 @@ import { redirect, notFound } from "next/navigation";
 import { Topbar } from "@/components/Topbar";
 import { CopyCode } from "@/components/CopyCode";
 import { ensurePlayer } from "@/lib/auth";
+import { getAccountForPlayer } from "@/lib/auth-account";
 import { loadWorld, loadPlayersForSeats, seatsByRole } from "@/lib/world/load";
 import { LobbyClient } from "./LobbyClient";
 
@@ -14,6 +15,7 @@ export default async function LobbyPage({
 }) {
   const { id } = await params;
   const player = await ensurePlayer();
+  const account = await getAccountForPlayer(player);
   const data = await loadWorld(id);
   if (!data) notFound();
   if (data.world.status === "active") redirect(`/world/${id}`);
@@ -21,11 +23,20 @@ export default async function LobbyPage({
   const playerIds = Array.from(new Set(data.seats.map((s) => s.playerId)));
   const players = await loadPlayersForSeats(playerIds);
   const seatedByRole = seatsByRole(data.seats, players);
-  const isReality = data.world.realityPlayerId === player.id;
+  // Reality is now resolved through account_id. Every world created on the
+  // new code path has reality_account_id set, so this is the only check.
+  const isReality =
+    !!account &&
+    !!data.world.realityAccountId &&
+    data.world.realityAccountId === account.id;
 
   return (
     <>
-      <Topbar worldName={data.world.name} you={player.displayName} />
+      <Topbar
+        worldName={data.world.name}
+        you={player.displayName}
+        account={account ? { email: account.email } : null}
+      />
       <main style={{ padding: 32, maxWidth: 880, margin: "0 auto", width: "100%" }}>
         <div
           style={{

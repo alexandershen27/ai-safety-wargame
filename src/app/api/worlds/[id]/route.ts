@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db, schema, ensureSchema } from "@/lib/db";
 import { eq } from "drizzle-orm";
 import { ensurePlayer } from "@/lib/auth";
+import { isRealityOf } from "@/lib/auth-account";
 
 export async function DELETE(
   _req: NextRequest,
@@ -18,7 +19,7 @@ export async function DELETE(
     .where(eq(schema.worlds.id, id))
     .get();
   if (!world) return new NextResponse("World not found.", { status: 404 });
-  if (world.realityPlayerId !== player.id)
+  if (!isRealityOf(player, world))
     return new NextResponse("Only Reality can delete a world.", { status: 403 });
   await db.delete(schema.worlds).where(eq(schema.worlds.id, id)).run();
   return NextResponse.json({ ok: true });

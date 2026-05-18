@@ -19,6 +19,7 @@
 import "server-only";
 import { db, schema, ensureSchema } from "@/lib/db";
 import { asc, eq, inArray } from "drizzle-orm";
+import { isRealityOf } from "@/lib/auth-account";
 
 export type WorldView = {
   world: typeof schema.worlds.$inferSelect;
@@ -110,7 +111,14 @@ export async function getWorldView(
         .all()
     : [];
 
-  const isReality = world.realityPlayerId === currentPlayerId;
+  // Reality resolves through account_id, not player_id. We need the player
+  // row's account_id for the comparison.
+  const me = await db
+    .select()
+    .from(schema.players)
+    .where(eq(schema.players.id, currentPlayerId))
+    .get();
+  const isReality = !!me && isRealityOf(me, world);
   const inDiscussion = currentTurn?.phase === "DISCUSSION";
 
   // Strict gate: every role I'm seated at must have AN action submitted this

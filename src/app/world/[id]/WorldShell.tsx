@@ -31,10 +31,12 @@ const POLL_MS = 2000;
 export function WorldShell({
   worldId,
   you,
+  account,
   initial,
 }: {
   worldId: string;
   you: { id: string; displayName: string };
+  account: { email: string } | null;
   initial: WorldView;
 }) {
   const [view, setView] = useState<WorldView>(initial);
@@ -111,6 +113,7 @@ export function WorldShell({
         phase={phase}
         date={turn ? formatDate(turn.dateAtTurn) : undefined}
         you={you.displayName}
+        account={account}
       />
       <Ribbon
         worldId={worldId}

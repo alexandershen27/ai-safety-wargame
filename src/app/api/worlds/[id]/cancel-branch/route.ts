@@ -11,6 +11,7 @@ import { z } from "zod";
 import { db, schema, ensureSchema } from "@/lib/db";
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { ensurePlayer } from "@/lib/auth";
+import { isRealityOf } from "@/lib/auth-account";
 
 const Body = z.object({ turnId: z.string() });
 
@@ -28,7 +29,7 @@ export async function POST(
     .where(eq(schema.worlds.id, worldId))
     .get();
   if (!world) return new NextResponse("World not found.", { status: 404 });
-  if (world.realityPlayerId !== player.id)
+  if (!isRealityOf(player, world))
     return new NextResponse("Only Reality can cancel a branch.", { status: 403 });
 
   const parsed = Body.safeParse(await req.json());

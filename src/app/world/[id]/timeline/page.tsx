@@ -3,6 +3,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { ensurePlayer } from "@/lib/auth";
+import { getAccountForPlayer } from "@/lib/auth-account";
 import { db, schema, ensureSchema } from "@/lib/db";
 import { eq, asc, inArray } from "drizzle-orm";
 import { Topbar } from "@/components/Topbar";
@@ -47,11 +48,19 @@ export default async function TimelinePage({
         .all()
     : [];
 
-  const isReality = world.realityPlayerId === player.id;
+  const account = await getAccountForPlayer(player);
+  const isReality =
+    !!account &&
+    !!world.realityAccountId &&
+    world.realityAccountId === account.id;
 
   return (
     <>
-      <Topbar worldName={world.name} you={player.displayName} />
+      <Topbar
+        worldName={world.name}
+        you={player.displayName}
+        account={account ? { email: account.email } : null}
+      />
       <div className="gb-shellbar">
         <Link
           href={`/world/${id}`}

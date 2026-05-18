@@ -8,9 +8,13 @@ many.
 
 ## What works
 
+- **Accounts (Reality only).** Reality signs in with an email magic link
+  before creating a world. Cross-device: sign in on any browser, your worlds
+  follow. Participants stay cookie-only by default; signing in is optional
+  for them and only used for cross-device seat continuity.
 - **Create / join a world.** Reality sets roles (name + color), start date,
   and timestep (day/week/month/year × N). Everyone else joins with a 6-char
-  code. Cookie-based identity, no login.
+  code.
 - **Phases.** `DISCUSSION → RESOLVE → CLOSED`. Drafting and voting both
   happen in DISCUSSION; once you've submitted every action you owe, you see
   others' submissions and can vote on them. Reality writes resolutions and
@@ -55,7 +59,6 @@ Roughly in priority order. None of this is committed.
   initial world state + a brief.
 - **Secrets between roles.** Per-action visibility — "only USG sees this."
   Changes the information model.
-- **Real accounts.** Cookie identity → OAuth, cross-device.
 
 ## Not building
 

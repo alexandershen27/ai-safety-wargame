@@ -9,6 +9,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db, schema, ensureSchema } from "@/lib/db";
 import { eq } from "drizzle-orm";
 import { ensurePlayer } from "@/lib/auth";
+import { isRealityOf } from "@/lib/auth-account";
 import { newId } from "@/lib/ids";
 import { advanceDate, type TimestepUnit } from "@/lib/timestep";
 
@@ -25,7 +26,7 @@ export async function POST(
     .where(eq(schema.worlds.id, id))
     .get();
   if (!world) return new NextResponse("World not found.", { status: 404 });
-  if (world.realityPlayerId !== player.id)
+  if (!isRealityOf(player, world))
     return new NextResponse("Only Reality can start.", { status: 403 });
   if (world.status !== "lobby") return NextResponse.json({ ok: true });
 

@@ -5,6 +5,7 @@ import { db, schema, ensureSchema } from "@/lib/db";
 import { eq } from "drizzle-orm";
 import { newId, newJoinCode } from "@/lib/ids";
 import { setDisplayName } from "@/lib/auth";
+import { getAccountForPlayer } from "@/lib/auth-account";
 
 const Body = z.object({
   worldName: z.string().min(1).max(80),
@@ -35,6 +36,14 @@ export async function POST(req: NextRequest) {
   }
   const data = parsed.data;
   const reality = await setDisplayName(data.displayName);
+  // Reality MUST be signed into an account. The /world/new page already
+  // gates on this; the API check is defense in depth.
+  const account = await getAccountForPlayer(reality);
+  if (!account) {
+    return new NextResponse("Sign in required to create a world.", {
+      status: 401,
+    });
+  }
 
   let joinCode = newJoinCode();
   for (let i = 0; i < 5; i++) {
@@ -55,6 +64,7 @@ export async function POST(req: NextRequest) {
       name: data.worldName,
       joinCode,
       realityPlayerId: reality.id,
+      realityAccountId: account.id,
       startDate: data.startDate,
       currentDate: data.startDate,
       timestepUnit: data.timestepUnit,

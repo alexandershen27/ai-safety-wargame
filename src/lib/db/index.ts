@@ -54,13 +54,46 @@ async function bootstrap() {
       // forward.
       ddl: "ALTER TABLE turns ADD COLUMN created_at TEXT",
     },
+    // Accounts feature (magic-link sign-in). The two new columns are
+    // nullable on purpose: existing players stay anonymous (account_id
+    // NULL); existing worlds are wiped on rollout so reality_account_id
+    // NULL is fine to ignore. The Reality gate refuses any world with
+    // reality_account_id NULL on the new code path.
+    {
+      table: "players",
+      column: "account_id",
+      ddl: "ALTER TABLE players ADD COLUMN account_id TEXT",
+    },
+    {
+      table: "worlds",
+      column: "reality_account_id",
+      ddl: "ALTER TABLE worlds ADD COLUMN reality_account_id TEXT",
+    },
   ];
 
   const stmts = [
+    // Accounts feature tables. Listed first because players references
+    // them via account_id (added below as an additive ALTER).
+    `CREATE TABLE IF NOT EXISTS accounts (
+      id TEXT PRIMARY KEY,
+      email TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS accounts_email_idx ON accounts(email)`,
+    `CREATE TABLE IF NOT EXISTS magic_links (
+      id TEXT PRIMARY KEY,
+      account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+      token TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      used_at TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS magic_links_token_idx ON magic_links(token)`,
     `CREATE TABLE IF NOT EXISTS players (
       id TEXT PRIMARY KEY,
       display_name TEXT NOT NULL,
       cookie_token TEXT NOT NULL,
+      account_id TEXT REFERENCES accounts(id),
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )`,
     `CREATE UNIQUE INDEX IF NOT EXISTS players_cookie_idx ON players(cookie_token)`,
@@ -69,6 +102,7 @@ async function bootstrap() {
       name TEXT NOT NULL,
       join_code TEXT NOT NULL,
       reality_player_id TEXT NOT NULL REFERENCES players(id),
+      reality_account_id TEXT REFERENCES accounts(id),
       start_date TEXT NOT NULL,
       current_date TEXT NOT NULL,
       timestep_unit TEXT NOT NULL DEFAULT 'month',

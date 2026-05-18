@@ -22,8 +22,24 @@ A scenario-modeling sandbox. Most of what you need to know to land a change:
   `closed_at`, or `current_date`. They hit `POST /api/worlds/[id]/advance`,
   `/branch`, `/switch-to`, or `/cancel-branch`. All four enforce
   Reality-only.
-- **Identity.** Cookie-based. Token issued in `src/proxy.ts`, lazy `players`
-  row in `src/lib/auth.ts`.
+- **Identity.** Two layers:
+  - **Cookie** — every visitor gets a `wg_player` cookie from `src/proxy.ts`
+    and a lazy `players` row keyed on it (`src/lib/auth.ts:ensurePlayer`).
+  - **Account** (optional, magic-link email) — `players.account_id`. Reality
+    MUST have one to create a world. The Reality gate uses
+    `isRealityOf(player, world)` from `src/lib/auth-account.ts`, which
+    compares `player.accountId === world.realityAccountId`. There is no
+    cookie-id fallback — that was wiped during rollout.
+  - Sign-in flow lives in `src/lib/auth-account.ts`. The
+    `bindPlayerToAccount` helper enforces "one live player row per account
+    at a time" by rewriting the existing account-bound player's cookie to
+    the incoming cookie and deleting the duplicate. This keeps existing
+    `authorPlayerId === me` filters working across devices without any
+    account-aware code.
+- **Email driver** — `src/lib/email.ts`. `EMAIL_DRIVER=console` (default in
+  dev) prints magic-link URLs to stdout; `EMAIL_DRIVER=resend` calls
+  Resend's REST API. Env vars: `RESEND_API_KEY`, `EMAIL_FROM`, `APP_URL`.
+  No SDK — just `fetch`.
 - **DB.** libSQL via Drizzle (`src/lib/db/`). Same client targets a local
   file in dev and Turso in prod. Schema bootstrap is idempotent
   `CREATE TABLE IF NOT EXISTS` + additive `ALTER` in `src/lib/db/index.ts`;
@@ -47,6 +63,8 @@ src/
 ├── lib/
 │   ├── db/                           Drizzle schema + libSQL client + bootstrap
 │   ├── auth.ts                       ensurePlayer() — cookie → player row
+│   ├── auth-account.ts               Magic-link helpers + isRealityOf()
+│   ├── email.ts                      sendMagicLink(); console + resend drivers
 │   ├── refresh.ts                    markMutationStart / requestRefresh / mutate
 │   ├── phases.ts                     Phase enum + NEXT_PHASE table
 │   ├── timestep.ts                   Pure date math
@@ -55,7 +73,8 @@ src/
 │       └── load.ts, recent.ts        Smaller server-side readers
 ├── app/
 │   ├── page.tsx                      Landing + recent worlds list
-│   ├── world/new/                    Reality: create world
+│   ├── sign-in/                      Magic-link request form
+│   ├── world/new/                    Reality: create world (account-gated)
 │   ├── join/                         Player: enter code + name
 │   ├── world/[id]/
 │   │   ├── lobby/                    Pre-start seat picker
@@ -64,5 +83,7 @@ src/
 │   │   ├── RoleMenu.tsx              Mid-game join/leave roles
 │   │   ├── phases/                   DiscussionView, ResolveView, VoteList
 │   │   └── timeline/                 Branch graph + history
-│   └── api/                          All POST/GET endpoints, Zod-validated
+│   └── api/
+│       ├── auth/                     magic-link, verify, sign-out
+│       └── ...                       All other POST/GET endpoints, Zod-validated
 ```

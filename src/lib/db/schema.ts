@@ -12,13 +12,59 @@ import {
   index,
 } from "drizzle-orm/sqlite-core";
 
-/** Anonymous player. Cookie token is the only credential. */
+/**
+ * Account = a verified email. Optional for regular players; required for
+ * anyone who wants to be Reality. Created lazily on first magic-link request
+ * for an email. The sign-in flow guarantees at most one live `players` row
+ * per account at any time (see bindPlayerToAccount in auth-account.ts), so
+ * downstream checks like `authorPlayerId === me` keep working unchanged
+ * across devices.
+ */
+export const accounts = sqliteTable(
+  "accounts",
+  {
+    id: text("id").primaryKey(),
+    /** Normalized lowercased. Unique. */
+    email: text("email").notNull(),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (t) => [uniqueIndex("accounts_email_idx").on(t.email)],
+);
+
+/**
+ * One-shot magic-link tokens. Each row dies on use OR after 15 min. We don't
+ * delete used/expired rows — keeping them is cheap and helps debugging.
+ */
+export const magicLinks = sqliteTable(
+  "magic_links",
+  {
+    id: text("id").primaryKey(),
+    accountId: text("account_id")
+      .notNull()
+      .references(() => accounts.id, { onDelete: "cascade" }),
+    /** 32-byte hex, lives in URL. Unique for the consume lookup. */
+    token: text("token").notNull(),
+    expiresAt: text("expires_at").notNull(),
+    /** Set on first successful verify. Null = still consumable. */
+    usedAt: text("used_at"),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (t) => [uniqueIndex("magic_links_token_idx").on(t.token)],
+);
+
+/**
+ * A player row represents an identity on a single device (cookie token).
+ * `account_id` is the optional binding to a cross-device account; null means
+ * "anonymous cookie-only" (the default for participants who never sign in).
+ */
 export const players = sqliteTable(
   "players",
   {
     id: text("id").primaryKey(),
     displayName: text("display_name").notNull(),
     cookieToken: text("cookie_token").notNull(),
+    /** Optional. Set on magic-link verify; cleared on sign-out. */
+    accountId: text("account_id").references(() => accounts.id),
     createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   },
   (t) => [uniqueIndex("players_cookie_idx").on(t.cookieToken)],
@@ -34,6 +80,14 @@ export const worlds = sqliteTable(
     realityPlayerId: text("reality_player_id")
       .notNull()
       .references(() => players.id),
+    /**
+     * The Reality of this world resolved via account, not player. Nullable
+     * at the SQL level (Turso can't add NOT NULL columns to existing
+     * tables); the API always sets it on insert, and reads expect non-null.
+     * Pre-accounts demo worlds have already been wiped — no fallback path
+     * in the isReality check.
+     */
+    realityAccountId: text("reality_account_id").references(() => accounts.id),
     startDate: text("start_date").notNull(), // ISO yyyy-mm-dd
     currentDate: text("current_date").notNull(),
     timestepUnit: text("timestep_unit").notNull().default("month"),
@@ -172,3 +226,5 @@ export type Player = typeof players.$inferSelect;
 export type Turn = typeof turns.$inferSelect;
 export type Action = typeof actions.$inferSelect;
 export type Vote = typeof votes.$inferSelect;
+export type Account = typeof accounts.$inferSelect;
+export type MagicLink = typeof magicLinks.$inferSelect;

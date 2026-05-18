@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Topbar } from "@/components/Topbar";
 import { ensurePlayer } from "@/lib/auth";
+import { getAccountForPlayer } from "@/lib/auth-account";
 import { getRecentWorldsForPlayer } from "@/lib/world/recent";
 import { RecentWorldsList } from "./RecentWorldsList";
 
@@ -10,11 +11,16 @@ export const dynamic = "force-dynamic";
 
 export default async function Home() {
   const player = await ensurePlayer();
-  const recent = await getRecentWorldsForPlayer(player.id);
+  const account = await getAccountForPlayer(player);
+  const recent = await getRecentWorldsForPlayer(player);
 
   return (
     <>
-      <Topbar worldName="" you={player.displayName} />
+      <Topbar
+        worldName=""
+        you={player.displayName}
+        account={account ? { email: account.email } : null}
+      />
       <main
         className="flex-1 flex flex-col items-center"
         style={{ padding: 32 }}

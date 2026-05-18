@@ -4,6 +4,7 @@ import { z } from "zod";
 import { db, schema, ensureSchema } from "@/lib/db";
 import { and, eq, isNotNull, ne } from "drizzle-orm";
 import { ensurePlayer } from "@/lib/auth";
+import { isRealityOf } from "@/lib/auth-account";
 import { newId } from "@/lib/ids";
 
 const SaveDraft = z.object({
@@ -225,7 +226,7 @@ export async function POST(req: NextRequest) {
       .where(eq(schema.worlds.id, turn.worldId))
       .get();
     if (!world) return new NextResponse("World not found.", { status: 404 });
-    if (world.realityPlayerId !== player.id)
+    if (!isRealityOf(player, world))
       return new NextResponse("Only Reality can resolve.", { status: 403 });
     await db
       .update(schema.actions)
