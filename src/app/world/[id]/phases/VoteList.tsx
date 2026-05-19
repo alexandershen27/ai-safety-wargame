@@ -5,7 +5,7 @@
 // Skipped actions (submittedAt set + submittedText empty) render as a
 // single muted line — no slider, no objection field. There's nothing to
 // vote on.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { RoleChip } from "@/components/RoleChip";
 import type { WorldView } from "@/lib/world/state";
 import { markMutationStart, requestRefresh } from "@/lib/refresh";
@@ -134,13 +134,34 @@ function ActionVoteCard({
   const [objection, setObjection] = useState(myVote?.objection ?? "");
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [touched, setTouched] = useState<boolean>(!!myVote);
+  // Track the last server snapshot we synced. Same pattern as ResolveView:
+  // only overwrite local state when local STILL matches what the server
+  // last told us. The old "always copy on myVote change" effect wiped any
+  // in-progress edits when a poll returned mid-typing — the objection
+  // textarea would flicker back to the previously saved value, then jump
+  // forward again when the autosave POST landed.
+  const lastServerRef = useRef({
+    likelihood: myVote?.likelihood ?? 50,
+    objection: myVote?.objection ?? "",
+  });
 
   useEffect(() => {
-    if (myVote) {
-      setLikelihood(myVote.likelihood);
-      setObjection(myVote.objection ?? "");
-      setTouched(true);
+    const nextLikelihood = myVote?.likelihood ?? 50;
+    const nextObjection = myVote?.objection ?? "";
+    const localUntouched =
+      likelihood === lastServerRef.current.likelihood &&
+      objection === lastServerRef.current.objection;
+    if (localUntouched) {
+      setLikelihood(nextLikelihood);
+      setObjection(nextObjection);
     }
+    lastServerRef.current = {
+      likelihood: nextLikelihood,
+      objection: nextObjection,
+    };
+    // We intentionally exclude `likelihood` and `objection` from deps —
+    // including them would re-fire on every keystroke, classify local
+    // edits as "untouched" against themselves, and revert.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [myVote?.likelihood, myVote?.objection]);
 
